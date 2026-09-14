@@ -1,0 +1,28 @@
+{
+  "kind": "function-pairs",
+  "version": 1,
+  "description": "Example function-level corpus (spec §11.1). Structurally valid but seeds no real PrimeVul data — fetch the corpus and convert it yourself. The `kind` field is what routes this file to tier 1.",
+  "corpus": "primevul-example",
+  "pairs": [
+    {
+      "id": "example-1",
+      "project": "example",
+      "cwe": "CWE-120",
+      "cve": "CVE-2026-0001",
+      "commitSha": "1111111111111111111111111111111111111111",
+      "fixCommit": "2222222222222222222222222222222222222222",
+      "vulnerable": "int copy_name(char *dst, const char *src) {\n  char buf[64];\n  strcpy(buf, src);\n  return strlen(buf);\n}",
+      "patched": "int copy_name(char *dst, const char *src) {\n  char buf[64];\n  snprintf(buf, sizeof(buf), \"%s\", src);\n  return strlen(buf);\n}",
+      "filePath": "src/name.c",
+      "note": "Both halves are judged as standalone functions, with no call site and no program model."
+    },
+    {
+      "id": "example-2",
+      "project": "example",
+      "cwe": "CWE-476",
+      "vulnerable": "int read_len(struct ctx *c) {\n  return c->len;\n}",
+      "patched": "int read_len(struct ctx *c) {\n  if (c == NULL) return 0;\n  return c->len;\n}",
+      "note": "No path recorded, so one is synthesized from the project and pair id."
+    }
+  ]
+}

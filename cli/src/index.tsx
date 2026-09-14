@@ -6,6 +6,9 @@
 // of tree-sitter.cjs and fails on user machines. Must run before the SDK / code-map
 // import chain triggers Parser.init.
 import './pre-init/tree-sitter-wasm'
+// Immediately after, and before the `@codebuff/common/*` imports below:
+// those reach `@codebuff/common/env`, which validates at import time.
+import './pre-init/client-env'
 
 import fs from 'fs'
 import os from 'os'
@@ -41,6 +44,7 @@ import { drainClientLogs } from './utils/log-shipper'
 import { shouldShowProjectPicker } from './utils/project-picker'
 import { saveRecentProject } from './utils/recent-projects'
 import { startEngagementTracking } from './utils/engagement'
+import { isWindbreakInvocation, runWindbreakCommand } from './windbreak'
 import {
   exitCliWithFatalError,
   installProcessCleanupHandlers,
@@ -203,6 +207,18 @@ async function main(): Promise<void> {
     }
   }
 
+  // `windbreak` is its own surface with its own parser, its own screen, and no
+  // chat session behind it. Like the smoke paths above, it has to be handled
+  // before commander parses the argv — the main program has no `--db`, and by
+  // design never will.
+  if (isWindbreakInvocation(process.argv)) {
+    const code = await runWindbreakCommand(process.argv)
+    // A refusal happens before the screen exists, so this command never gets to
+    // own the exit. A zero return means the screen is up and will exit itself.
+    if (code !== 0) process.exitCode = code
+    return
+  }
+
   const {
     initialPrompt,
     command,
@@ -272,11 +288,11 @@ async function main(): Promise<void> {
     if (result.success && result.publisherId && result.agents) {
       logger.info(green('✅ Successfully published:'))
       for (const agent of result.agents) {
-        logger.info(
-          cyan(
-            `  - ${agent.displayName} (${result.publisherId}/${agent.id}@${agent.version})`,
-          ),
-        )
+      logger.info(
+        cyan(
+          `  - ${agent.displayName} (${result.publisherId}/${agent.id}@${agent.version})`,
+        ),
+      )
       }
       process.exit(0)
     } else {

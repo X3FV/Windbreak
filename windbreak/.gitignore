@@ -1,0 +1,4 @@
+# Default location for run state and per-target scratch (see src/commands/recon.ts
+# and src/state/db.ts). Never committed: it holds scan results and copies of
+# target source trees.
+.windbreak/

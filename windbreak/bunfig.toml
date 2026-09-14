@@ -1,0 +1,7 @@
+[test]
+# Same reason as common/bunfig.toml and cli/bunfig.toml: bun loads .env and
+# bunfig.toml from the CWD only, and anything transitively importing
+# @codebuff/common/env throws at import time without the shared fixture. Bun
+# reports that as an unhandled error rather than a failing test, so the suite
+# would silently stop covering the file. See docs/testing.md.
+preload = ["../sdk/test/setup-env.ts"]

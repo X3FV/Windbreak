@@ -1,0 +1,139 @@
+# WindBreak baseline rules (spec §4.3).
+#
+# These are the wide net, not the catch. The spec is explicit that generic rules
+# exceed 90% false positives on OWASP and that four tools combined catch roughly
+# 39% of real-world vulnerabilities in isolation — so these rules are judged by
+# whether triage (§4.6) can cheaply discard what they surface, not by their raw
+# precision. Every candidate they produce is normalized into the §4.5 schema and
+# carries its rule id as `pattern_id`.
+#
+# Deliberately NOT here: check-then-use / TOCTOU. §4.4.3's FSM module is the
+# mechanism for that class; a shallow same-file pattern would only add noise to
+# triage.
+#
+# Offline by construction: this file is bound read-only into the sandbox and
+# passed with `--config`, because the sandbox has no route (§6.3).
+
+rules:
+  - id: wb-c-unbounded-string-op
+    languages: [c, cpp]
+    severity: ERROR
+    message: >-
+      Unbounded string operation. strcpy/strcat/sprintf/vsprintf/gets do not
+      bound the destination, so a longer source overruns a fixed-size buffer
+      (CWE-120). Use the bounded variant with an explicit size.
+    metadata:
+      category: security
+      cwe: CWE-120
+      confidence: MEDIUM
+      owasp: "A03:2021 - Injection"
+    patterns:
+      - pattern-either:
+          - pattern: strcpy($DST, $SRC)
+          - pattern: strcat($DST, $SRC)
+          - pattern: sprintf($DST, ...)
+          - pattern: vsprintf($DST, ...)
+          - pattern: gets(...)
+
+  - id: wb-c-command-injection
+    languages: [c, cpp]
+    severity: ERROR
+    message: >-
+      Command execution with a non-constant argument. An attacker who controls
+      the argument executes arbitrary commands (CWE-78).
+    metadata:
+      category: security
+      cwe: CWE-78
+      confidence: MEDIUM
+      owasp: "A03:2021 - Injection"
+    patterns:
+      - pattern-either:
+          - pattern: system($CMD)
+          - pattern: popen($CMD, ...)
+      - metavariable-regex:
+          metavariable: $CMD
+          regex: '^[^"]'
+
+  - id: wb-c-format-string
+    languages: [c, cpp]
+    severity: ERROR
+    message: >-
+      Non-constant format string. If the format is attacker-influenced, the
+      specifiers read or write out of bounds (CWE-134). Pass "%s" and the
+      string as an argument.
+    metadata:
+      category: security
+      cwe: CWE-134
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: printf($FMT)
+          - pattern: printf($FMT, ...)
+          - pattern: fprintf($STREAM, $FMT, ...)
+          - pattern: syslog($PRI, $FMT, ...)
+      - metavariable-regex:
+          metavariable: $FMT
+          regex: '^[^"]'
+
+  - id: wb-c-integer-overflow-allocation
+    languages: [c, cpp]
+    severity: WARNING
+    message: >-
+      Allocation size computed by multiplication. If a factor is large enough
+      the product wraps and a smaller buffer than expected is allocated
+      (CWE-190). Check the factors, or use a checked-multiplication helper.
+    metadata:
+      category: security
+      cwe: CWE-190
+      confidence: LOW
+    patterns:
+      - pattern-either:
+          - pattern: malloc($N * $SIZE)
+          - pattern: realloc($PTR, $N * $SIZE)
+
+  - id: wb-c-realloc-aliasing
+    languages: [c, cpp]
+    severity: WARNING
+    message: >-
+      realloc's result overwrites the only pointer to the original block. On
+      failure the old block is leaked and the NULL result is dereferenced
+      (CWE-401/CWE-476). Assign to a temporary, check it, then overwrite.
+    metadata:
+      category: security
+      cwe: CWE-401
+      confidence: MEDIUM
+     # The same metavariable on both sides is what makes this precise: the
+     # correct idiom (`char *tmp = realloc(p, n)`) binds $PTR to `tmp` on the
+     # left and `p` on the right, so it does not match.
+    pattern: $PTR = realloc($PTR, ...)
+
+  - id: wb-c-insecure-temp-file
+    languages: [c, cpp]
+    severity: WARNING
+    message: >-
+      Predictable temporary file name. tmpnam/tempnam/mktemp are racy and let a
+      local attacker pre-create the path (CWE-377). Use mkstemp.
+    metadata:
+      category: security
+      cwe: CWE-377
+      confidence: MEDIUM
+    patterns:
+      - pattern-either:
+          - pattern: tmpnam(...)
+          - pattern: tempnam(...)
+          - pattern: mktemp(...)
+
+  - id: wb-c-weak-randomness
+    languages: [c, cpp]
+    severity: WARNING
+    message: >-
+      rand()/random() are not cryptographically secure and are seedable or
+      predictable. Do not use them for tokens, session ids, or keys (CWE-338).
+    metadata:
+      category: security
+      cwe: CWE-338
+      confidence: LOW
+    patterns:
+      - pattern-either:
+          - pattern: rand()
+          - pattern: random()

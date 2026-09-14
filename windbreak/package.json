@@ -1,0 +1,65 @@
+{
+  "name": "@codebuff/windbreak",
+  "version": "0.0.1",
+  "description": "AI-assisted vulnerability discovery harness for open source codebases",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "windbreak": "./src/index.ts"
+  },
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./review": {
+      "bun": "./src/review/index.ts",
+      "types": "./src/review/index.ts",
+      "default": "./src/review/index.ts"
+    },
+    "./state": {
+      "bun": "./src/state/db.ts",
+      "types": "./src/state/db.ts",
+      "default": "./src/state/db.ts"
+    },
+    "./scan": {
+      "bun": "./src/scan/index.ts",
+      "types": "./src/scan/index.ts",
+      "default": "./src/scan/index.ts"
+    },
+    "./client": {
+      "bun": "./src/client.ts",
+      "types": "./src/client.ts",
+      "default": "./src/client.ts"
+    },
+    "./config": {
+      "bun": "./src/config.ts",
+      "types": "./src/config.ts",
+      "default": "./src/config.ts"
+    }
+  },
+  "scripts": {
+    "dev": "bun run src/index.ts",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "bun test $(bun run --silent test:files)",
+    "test:files": "find src \\( -name '*.test.ts' -o -name '*.test.tsx' \\) ! -name '*.integration.test.ts' ! -name '*.integration.test.tsx' 2>/dev/null | sort",
+    "test:integration": "bun test $(bun run --silent test:files:integration)",
+    "test:files:integration": "find src \\( -name '*.integration.test.ts' -o -name '*.integration.test.tsx' \\) 2>/dev/null | sort"
+  },
+  "sideEffects": false,
+  "engines": {
+    "bun": "1.3.11"
+  },
+  "dependencies": {
+    "@codebuff/code-map": "workspace:*",
+    "@codebuff/sdk": "workspace:*",
+    "@vscode/tree-sitter-wasm": "0.1.4",
+    "commander": "^14.0.1",
+    "web-tree-sitter": "0.25.10",
+    "zod": "^4.2.1"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.11"
+  }
+}

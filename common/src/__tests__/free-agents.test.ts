@@ -13,6 +13,7 @@ import {
   SUPPORTED_FREEBUFF_MODELS,
   FREEBUFF_GEMINI_PRO_MODEL_ID,
   FREEBUFF_GLM_V52_MODEL_ID,
+  FREEBUFF_GLM_V53_FLASH_MODEL_ID,
   FREEBUFF_GPT_5_6_LUNA_MODEL_ID,
   FREEBUFF_KIMI_K3_ECO_MODEL_ID,
   FREEBUFF_MIMO_V25_MODEL_ID,
@@ -573,12 +574,24 @@ describe('isLimitedTierSubstitutedModel', () => {
     expect(
       isLimitedTierSubstitutedModel('base2-free', FALLBACK_FREEBUFF_MODEL_ID),
     ).toBe(true)
-    // The FULL-ACCESS default is not a door. It diverged from the limited hero
-    // on 2026-09-05, and this is what keeps the substitution from quietly
-    // widening to whatever the default happens to be.
+    // The doors are EXACTLY those two, which is the invariant the assertion here
+    // used to protect. It read "the full-access default is not a door" — true
+    // while the default and the coercion target were different rows, and false
+    // since 2026-09-13, when they became the same row by design (the default IS
+    // the coercion target now, so it must open the same door).
+    //
+    // Asserted against a row that is neither door instead, so the test still
+    // fails if the predicate ever widens to "whatever the default happens to
+    // be" — which was the thing the old form was standing in for.
+    expect(
+      isLimitedTierSubstitutedModel(
+        'base2-free',
+        FREEBUFF_GLM_V53_FLASH_MODEL_ID,
+      ),
+    ).toBe(false)
     expect(
       isLimitedTierSubstitutedModel('base2-free', DEFAULT_FREEBUFF_MODEL_ID),
-    ).toBe(false)
+    ).toBe(DEFAULT_FREEBUFF_MODEL_ID === LIMITED_FREEBUFF_MODEL_ID)
   })
 
   // The substitution widens free mode, so it must not widen who can claim it:

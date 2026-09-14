@@ -17,7 +17,8 @@
   "scripts": {
     "dev": "bun run prebuild:agents && bun run src/entry.ts --cwd ..",
     "prebuild:agents": "bun run scripts/prebuild-agents.ts",
-    "build:binary": "bun ./scripts/build-binary.ts codebuff $npm_package_version",
+    "build:binary": "FREEBUFF_MODE=true bun ./scripts/build-binary.ts freebuff $npm_package_version",
+    "build:binary:codebuff": "bun ./scripts/build-binary.ts codebuff $npm_package_version",
     "release": "bun run scripts/release.ts",
     "test": "NODE_ENV=production bun test $(bun run --silent test:files)",
     "test:files": "find src \\( -name '*.test.ts' -o -name '*.test.tsx' \\) ! -name '*.integration.test.ts' ! -name '*.integration.test.tsx' 2>/dev/null | sort",
@@ -33,6 +34,7 @@
   },
   "dependencies": {
     "@codebuff/sdk": "workspace:*",
+    "@codebuff/windbreak": "workspace:*",
     "@gravity-ai/api": "^0.1.2",
     "@opentui/core": "0.3.4",
     "@opentui/react": "0.3.4",

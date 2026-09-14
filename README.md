@@ -34,8 +34,8 @@ Freebuff includes a curated model catalog. The regular picker currently offers:
 
 | Model                       | Access                  | Best for                                                          |
 | --------------------------- | ----------------------- | ----------------------------------------------------------------- |
-| **GLM 5.3 Flash**           | Full and limited access | The default everywhere; deepest reasoning, unmetered              |
-| **DeepSeek V4.1 Flash** | Full and limited access | Fast coding and tool use, unmetered                               |
+| **DeepSeek V4.1 Flash**     | Full and limited access | The default everywhere; fast coding and tool use, unmetered       |
+| **GLM 5.3 Flash**           | Full and limited access | Cheapest of the included models; deep reasoning, unmetered         |
 | **GPT-5.6 Luna**            | Full access             | Strong all-around with native images                              |
 | **MiMo 2.5**                | Full and limited access | Balanced performance with image support                           |
 | **Solar Pro 4**             | Full and limited access | Limited-time trial; 524K context, text only; unmetered at full access |

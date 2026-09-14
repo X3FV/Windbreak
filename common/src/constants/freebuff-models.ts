@@ -1970,11 +1970,26 @@ export const FREEBUFF_MODELS = [
   // IS the recommendation; a returning user who chose another row keeps it.
   // A test pins the first row to DEFAULT_FREEBUFF_MODEL_ID.
   //
-  // GLM 5.3 FLASH LEADS AGAIN as of 2026-09-05, retaking the position it held
-  // from 08-30 to 09-02. This moved because the DEFAULT moved, which is the
-  // only reason this line ever moves.
-  GLM_V53_FLASH_MODEL,
+  // DEEPSEEK V4.1 FLASH LEADS as of 2026-09-13. As always this moved because the
+  // DEFAULT moved rather than the other way round — leading the list is the only
+  // steer here, and a test pins row 0 to DEFAULT_FREEBUFF_MODEL_ID.
+  //
+  // The blocker that took the lead off this row on 2026-08-24 is GONE rather
+  // than waived: Flash closed for the ten-hour peak window and that closure was
+  // reversed the same day, so the row is `availability: 'always'` and UNMETERED
+  // again (see DEEPSEEK_V4_FLASH_MODEL). That is the hour invariant a default
+  // has to clear, and the test still asserts it at both ends of the window.
+  //
+  // What this costs is real and is the reason GLM 5.3 Flash held the lead: it is
+  // the cheapest row we serve, by a wide margin — measured production spend per
+  // message puts V4 Flash at 8.9x it (figures in the internal cost notes, not in
+  // this exported file). What buys it back is the depth the default gave up when
+  // it moved off Flash in August: this is the deep row, and a default is what a
+  // new user lands on before they know the catalog exists.
   DEEPSEEK_V4_FLASH_MODEL,
+  // GLM 5.3 FLASH GIVES UP THE LEAD but not its place: default from 2026-09-05
+  // (and 08-30 to 09-02) and still the second row, and still the cheapest.
+  GLM_V53_FLASH_MODEL,
   GPT_5_6_LUNA_MODEL,
   ...(FREEBUFF_ENABLE_MIMO_MODELS_IN_UI ? [MIMO_V25_MODEL] : []),
   // OX ALPHA LEFT THIS LIST on 2026-08-27, when its anonymous host ended the
@@ -2680,16 +2695,20 @@ export type FreebuffWebModelId = (typeof FREEBUFF_WEB_ALL_MODELS)[number]['id']
  *  user sees changes — pickers still render `warning`, there is simply no
  *  longer one to render on the default row. */
 export const DEFAULT_FREEBUFF_MODEL_ID: FreebuffModelId =
-  FREEBUFF_GLM_V53_FLASH_MODEL_ID
+  FREEBUFF_DEEPSEEK_V4_FLASH_MODEL_ID
 
 /** The default this one replaced, and the stamp of the one-time move of saved
  *  picks off it (util/freebuff-default-model-migration.ts). Every surface
  *  persists the model a session ran on, so a saved old default is usually
- *  inherited, not chosen. Bump both together at the next flip. */
+ *  inherited, not chosen. Bump both together at the next flip.
+ *
+ *  Flipped 2026-09-13, back to the row this constant held before 2026-09-05.
+ *  The stamp names the default being ADOPTED, so it moves even though the model
+ *  it replaces is the one that took the lead from it in September. */
 export const PREVIOUS_DEFAULT_FREEBUFF_MODEL_ID: FreebuffModelId =
-  FREEBUFF_DEEPSEEK_V4_FLASH_MODEL_ID
+  FREEBUFF_GLM_V53_FLASH_MODEL_ID
 export const FREEBUFF_DEFAULT_MODEL_MIGRATION_ID =
-  'glm-5.3-flash-2026-09-05'
+  'deepseek-v4.1-flash-2026-09-13'
 
 /** What new Freebuff Web/Cloud users see selected in the browser pickers, and
  *  the model a new Cloud thread starts on. DeepSeek V4.1 Flash as of
@@ -2719,9 +2738,12 @@ export const FREEBUFF_DEFAULT_MODEL_MIGRATION_ID =
  *
  *  Kept as its own constant from DEFAULT_FREEBUFF_MODEL_ID (CLI/Desktop) so the
  *  browser surfaces can steer independently. They name the same model today and
- *  diverged as recently as 2026-08-04 -> 2026-08-12. */
+ *  diverged as recently as 2026-08-04 -> 2026-08-12. It moved back to this row
+ *  on 2026-09-13 with the CLI/Desktop default, and the paragraph above is why:
+ *  the argument for the deep row is strongest on the surface where a wrong
+ *  first turn costs the whole project. */
 export const DEFAULT_FREEBUFF_WEB_MODEL_ID: FreebuffWebModelId =
-  FREEBUFF_GLM_V53_FLASH_MODEL_ID
+  FREEBUFF_DEEPSEEK_V4_FLASH_MODEL_ID
 
 /** Premium models the Web/Cloud picker renders small and muted: they are
  *  materially more expensive per token than the recommended default without
@@ -2825,7 +2847,7 @@ export const LIMITED_FREEBUFF_MODEL_ID: FreebuffModelId =
  *  the next joinable row (the CLI's grid repair, Desktop's `canStart` filter),
  *  and the server coerces onto LIMITED_FREEBUFF_MODEL_ID, never onto this. */
 export const LIMITED_FREEBUFF_HERO_MODEL_ID: FreebuffModelId =
-  FREEBUFF_GLM_V53_FLASH_MODEL_ID
+  FREEBUFF_DEEPSEEK_V4_FLASH_MODEL_ID
 /**
  * The limited tier's catalog, hero first — the ONE owner of which models are
  * limited-tier: the web geo-exempt list, the quota pool, and chat's list all
@@ -2850,11 +2872,17 @@ export const LIMITED_FREEBUFF_HERO_MODEL_ID: FreebuffModelId =
 // Solar Pro 4 joined on 2026-09-03. Limited access is still metered by the
 // regional pool, so this widens the catalog without making that tier unmetered.
 export const LIMITED_FREEBUFF_MODEL_IDS = [
-  // Hero first (LIMITED_FREEBUFF_HERO_MODEL_ID). GLM 5.3 Flash since
-  // 2026-09-07 — see LIMITED_FREEBUFF_MODEL_ID for why the coercion target
-  // is a different row.
-  FREEBUFF_GLM_V53_FLASH_MODEL_ID,
+  // Hero first (LIMITED_FREEBUFF_HERO_MODEL_ID). DeepSeek V4.1 Flash since
+  // 2026-09-13, moving with the default it is pinned to.
+  //
+  // The hero and the COERCION target are now the SAME row, which they were not
+  // between 2026-09-07 and this flip, and that is a strengthening rather than a
+  // collapse: the coercion target is the row joinable with no meter, no grant
+  // and no plan, so a hero that IS that row cannot be reached by an earned door.
+  // The assertion that they differ is retired in the tests rather than kept as
+  // a fiction.
   FREEBUFF_DEEPSEEK_V4_FLASH_MODEL_ID,
+  FREEBUFF_GLM_V53_FLASH_MODEL_ID,
   FREEBUFF_MIMO_V25_MODEL_ID,
   ...(FREEBUFF_SOLAR_PRO_4_ENTITLEMENT.limitedAccess
     ? [FREEBUFF_SOLAR_PRO_4_ENTITLEMENT.modelId]
@@ -3117,15 +3145,18 @@ export function getFreebuffModelsForAccessTier(
 
 /** The model the CLI/Desktop picker highlights as the "recommended" hero so a
  *  new user can start with one Enter press without scanning the full list. Full
- *  access → DEFAULT_FREEBUFF_MODEL_ID (GPT-5.6 Luna); limited →
- *  LIMITED_FREEBUFF_MODEL_ID (MiMo 2.5). Both names are restated here because
- *  this docblock twice outlived the constants it described — it still named V4
- *  Pro and V4 Flash on 2026-08-24, long after neither was returned.
+ *  access → DEFAULT_FREEBUFF_MODEL_ID; limited → LIMITED_FREEBUFF_HERO_MODEL_ID.
  *
- *  The hero is premium, so ALWAYS pass `premiumExhausted` from the live quota
- *  snapshot: it flips to FALLBACK_FREEBUFF_MODEL_ID once the daily pool runs
- *  out, because the recommended pick has to stay joinable. A caller that omits
- *  it will offer a hero whose next send fails admission. */
+ *  Deliberately NOT restated as model names here. This docblock twice outlived
+ *  the constants it described — it still named V4 Pro and V4 Flash on
+ *  2026-08-24, long after neither was returned — so it names the constants now
+ *  and lets them move.
+ *
+ *  The hero is premium on some flips and not on others, so ALWAYS pass
+ *  `premiumExhausted` from the live quota snapshot: when the hero does draw on
+ *  the pool, it flips to FALLBACK_FREEBUFF_MODEL_ID once that pool runs out,
+ *  because the recommended pick has to stay joinable. A caller that omits it
+ *  will offer a hero whose next send fails admission. */
 export function getRecommendedFreebuffModelId(
   accessTier: FreebuffAccessTier | null | undefined,
   options: { premiumExhausted?: boolean } = {},
@@ -3147,9 +3178,11 @@ export function getRecommendedFreebuffModelId(
 }
 
 /** The Web/Cloud counterpart of getRecommendedFreebuffModelId: full access →
- *  DEFAULT_FREEBUFF_WEB_MODEL_ID (GPT-5.6 Luna); limited →
- *  LIMITED_FREEBUFF_MODEL_ID. `premiumExhausted` flips the hero to the
- *  unlimited flash model so the recommended pick is always joinable. */
+ *  DEFAULT_FREEBUFF_WEB_MODEL_ID; limited → LIMITED_FREEBUFF_HERO_MODEL_ID.
+ *  `premiumExhausted` flips the hero to FALLBACK_FREEBUFF_MODEL_ID when the
+ *  default draws on the spent pool, so the recommended pick stays joinable.
+ *  Names the constants rather than the models, for the reason the counterpart
+ *  above gives. */
 export function getRecommendedFreebuffWebModelId(
   accessTier: FreebuffAccessTier | null | undefined,
   options: { premiumExhausted?: boolean } = {},

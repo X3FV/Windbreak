@@ -186,6 +186,24 @@
         "node-fetch": "^3.3.2",
       },
     },
+    "windbreak": {
+      "name": "@codebuff/windbreak",
+      "version": "0.0.1",
+      "bin": {
+        "windbreak": "./src/index.ts",
+      },
+      "dependencies": {
+        "@codebuff/code-map": "workspace:*",
+        "@codebuff/sdk": "workspace:*",
+        "@vscode/tree-sitter-wasm": "0.1.4",
+        "commander": "^14.0.1",
+        "web-tree-sitter": "0.25.10",
+        "zod": "^4.2.1",
+      },
+      "devDependencies": {
+        "@types/bun": "1.3.11",
+      },
+    },
   },
   "overrides": {
     "@types/react": "19.2.14",
@@ -237,6 +255,8 @@
     "@codebuff/sdk": ["@codebuff/sdk@workspace:sdk"],
 
     "@codebuff/tmux-scripts": ["@codebuff/tmux-scripts@workspace:scripts/tmux"],
+
+    "@codebuff/windbreak": ["@codebuff/windbreak@workspace:windbreak"],
 
     "@cspotcode/source-map-support": ["@cspotcode/source-map-support@0.8.1", "", { "dependencies": { "@jridgewell/trace-mapping": "0.3.9" } }, "sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw=="],
 

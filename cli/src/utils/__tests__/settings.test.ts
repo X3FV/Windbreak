@@ -16,6 +16,11 @@ import {
 
 import * as auth from '../auth'
 import {
+  DEFAULT_WINDBREAK_PREFERENCES,
+  readWindbreakPreferences,
+  writeWindbreakPreferences,
+} from '../../windbreak/settings-store'
+import {
   getSettingsPath,
   hasSeenFreebucksIntro,
   loadSettings,
@@ -189,5 +194,63 @@ describe('the one-time Freebucks introduction mark', () => {
       fs.readFileSync(path.join(testConfigDir, 'settings.json'), 'utf8'),
     ) as { freebucksIntroSeenAt?: string }
     expect(typeof raw.freebucksIntroSeenAt).toBe('string')
+  })
+})
+
+describe('the adjudication screen preferences', () => {
+  const useTempConfigDir = () => {
+    testConfigDir = fs.mkdtempSync(
+      path.join(os.tmpdir(), 'freebuff-settings-test-'),
+    )
+    getConfigDirSpy = spyOn(auth, 'getConfigDir').mockReturnValue(testConfigDir)
+  }
+
+  test('survive a round trip through the settings file', () => {
+    useTempConfigDir()
+
+    writeWindbreakPreferences({
+      layout: 'split',
+      theme: 'contrast',
+      decisionWidth: 28,
+      colors: { detailRule: '#ff00ff' },
+    })
+
+    expect(readWindbreakPreferences()).toEqual({
+      layout: 'split',
+      theme: 'contrast',
+      queueWidth: undefined,
+      decisionWidth: 28,
+      colors: { detailRule: '#ff00ff' },
+    })
+  })
+
+  test('a hand-edited file cannot put a broken value on the screen', () => {
+    useTempConfigDir()
+    fs.writeFileSync(
+      getSettingsPath(),
+      JSON.stringify({
+        windbreak: {
+          layout: 'grid',
+          theme: 'neon',
+          queueWidth: -4,
+          colors: { frame: 'a\nb', detailRule: '#123456' },
+        },
+      }),
+    )
+
+    expect(readWindbreakPreferences()).toEqual({
+      ...DEFAULT_WINDBREAK_PREFERENCES,
+      colors: { detailRule: '#123456' },
+    })
+  })
+
+  test('a settings file with no key for it is left alone', () => {
+    // The loader drops what it does not copy, so a key invented on every read
+    // would be written back into files that never had it.
+    useTempConfigDir()
+    fs.writeFileSync(getSettingsPath(), JSON.stringify({ mode: 'DEFAULT' }))
+
+    expect(loadSettings().windbreak).toBeUndefined()
+    expect(readWindbreakPreferences()).toEqual(DEFAULT_WINDBREAK_PREFERENCES)
   })
 })

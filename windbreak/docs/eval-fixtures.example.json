@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "description": "Example fixture list (spec §11.2). Copy this into your own private set; this file is a schema example and seeds no real ground truth.",
+  "fixtures": [
+    {
+      "id": "example-libarchive-3.6.2",
+      "project": "libarchive",
+      "commitSha": "6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b",
+      "bugs": [
+        {
+          "id": "example-bug-1",
+          "cwe": "CWE-120",
+          "cve": "CVE-2024-0001",
+          "files": [
+            {
+              "filePath": "libarchive/archive_read_support_format_zip.c",
+              "startLine": 1420,
+              "endLine": 1448,
+              "functionName": "zip_read_local_file_header"
+            }
+          ],
+          "fixCommit": "b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0",
+          "note": "Bounded the length read before the copy. Counts as surfaced if any candidate lands in the range."
+        },
+        {
+          "id": "example-bug-2",
+          "cwe": "CWE-476",
+          "cve": null,
+          "files": [
+            {
+              "filePath": "libarchive/archive_string.c",
+              "startLine": null,
+              "endLine": null,
+              "functionName": "archive_string_append"
+            }
+          ],
+          "fixCommit": null,
+          "note": "No line range recorded, so any candidate in this file that names the symbol counts. A file-level match is reported as a weaker basis than a range match."
+        }
+      ]
+    },
+    {
+      "id": "example-negative-control",
+      "project": "libarchive",
+      "commitSha": "9f8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c",
+      "bugs": [],
+      "note": "A negative control. Seeding no bugs is deliberate: recall is undefined for this fixture and only its precision means anything."
+    }
+  ]
+}
