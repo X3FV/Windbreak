@@ -75,8 +75,14 @@ export const findingId = (candidateId: string): string =>
  *
  * Started as the classes the C rule set can emit and has grown with the producers that
  * name a class: §4.4.3's signal shapes carry 364 and 828, which no engine rule emits.
+ *
+ * Exported because "the classes this tool can name" is a claim worth checking, not just a
+ * lookup table: `harness.test.ts` holds it against the committed rule set and against the
+ * harness's expected-failure table, both of which have to know every class here. The
+ * entry for CWE-377 and CWE-338 was missing when that check was written — the engine
+ * emitted them and neither the title nor the reproduction guidance could name them.
  */
-const CLASS_NAMES: Record<string, string> = {
+export const CLASS_NAMES: Record<string, string> = {
   'CWE-120': 'Unbounded copy',
   'CWE-121': 'Stack buffer overflow',
   'CWE-122': 'Heap buffer overflow',
@@ -91,9 +97,11 @@ const CLASS_NAMES: Record<string, string> = {
   'CWE-78': 'OS command injection',
   'CWE-89': 'SQL injection',
   'CWE-134': 'Uncontrolled format string',
+  'CWE-338': 'Weak pseudo-randomness',
   'CWE-362': 'Race condition',
   'CWE-364': 'Signal handler race',
   'CWE-367': 'TOCTOU race',
+  'CWE-377': 'Insecure temporary file',
   'CWE-828': 'Not async-signal-safe in a signal handler',
 }
 

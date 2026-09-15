@@ -318,6 +318,57 @@ export const pointerParameters = (lines: readonly string[]): string[] => {
 }
 
 /**
+ * Parameter names of the function a region belongs to, **in order**.
+ *
+ * Ordered and sparse, which is the difference from `pointerParameters`. That one
+ * answers "which pointers does this function take", which is what a null-check
+ * subject needs and what a set is good for. Matching a call site needs a different
+ * question — *which position* is which parameter, because arguments are matched by
+ * position. `(int flags, const char *path)` is one pointer either way, but `path` is
+ * the argument at index 1 and no set can say so.
+ *
+ * `null` marks a parameter that names nothing (a bare type such as `int`, or an
+ * unnamed `void *`), because a position that cannot be named cannot be matched to an
+ * argument and must occupy its slot rather than shift the ones after it.
+ */
+export const parameterNames = (lines: readonly string[]): Array<string | null> => {
+  const signature = signatureText(lines)
+  if (signature === null) return []
+
+  const open = signature.indexOf('(')
+  let depth = 0
+  let close = -1
+  for (let index = open; index < signature.length; index += 1) {
+    const character = signature[index]!
+    if (character === '(') depth += 1
+    else if (character === ')') {
+      depth -= 1
+      if (depth === 0) {
+        close = index
+        break
+      }
+    }
+  }
+  if (close === -1) return []
+
+  const parameters = splitTopLevel(signature.slice(open + 1, close))
+  // `void` alone is an empty list, not a parameter named `void`.
+  if (parameters.length === 1 && parameters[0] === 'void') return []
+
+  return parameters.map((parameter) => {
+    // A function pointer's name is inside a nested parenthesised declarator.
+    const functionPointer = /\(\s*\*+\s*([A-Za-z_]\w*)\s*\)/.exec(parameter)
+    if (functionPointer?.[1]) return functionPointer[1]
+
+    const declared = /([A-Za-z_]\w*)\s*(?:\[[^\]]*\])*\s*$/.exec(parameter)
+    const name = declared?.[1]
+    // The whole parameter being one identifier means that identifier is the type.
+    if (name === undefined || name === parameter.trim()) return null
+    return name
+  })
+}
+
+/**
  * The first line (1-based) where `identifier` is used, or null.
  *
  * Deliberately broad — a dereference, a release, or an argument to *any* call.

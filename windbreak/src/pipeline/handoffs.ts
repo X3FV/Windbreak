@@ -179,6 +179,7 @@ export const HANDOFFS = {
       'maxSitesPerProducer',
       'fsms',
       'signalHandlers',
+      'interprocedural',
       'fixSubjectsOnly',
       'historyTimeLimitSeconds',
       'preferredBackend',

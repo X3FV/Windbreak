@@ -11,6 +11,24 @@
  * target, marks every decision the researcher has to make, and does not pretend
  * to be a working exploit: a harness that looks complete but silently does
  * nothing would waste exactly the researcher time this tool exists to protect.
+ *
+ * ## What "it compiles" is guaranteed to mean
+ *
+ * The skeleton declares its own prototype, so it is syntactically valid C on its
+ * own. It does not link, and it cannot be checked against the target's real
+ * signature — that is the decision left to the researcher, and guessing it would
+ * be the same overclaim the rest of this module avoids. Compiling it *against the
+ * target* is not done here and never will be: D21 keeps generation pure, so
+ * `report/` spawns nothing.
+ *
+ * What *is* verified is that every shape this module can emit is valid C:
+ * `harness.test.ts` compiles each one with `cc -fsyntax-only -Wall -Wextra` and
+ * fails on a diagnostic. That is not decoration. A symbol-index name is not
+ * necessarily a C identifier — a C++ destructor, an operator, a qualified name —
+ * and emitting one put a syntax error in the first file the researcher builds,
+ * which reads as "the target is broken" rather than "the harness needs a decision
+ * made". Names like that now degrade to the placeholder, with the reason stated
+ * in the emitted file rather than left to be inferred.
  */
 
 import type { Finding, GeneratedHarness, HarnessFile } from './types'
@@ -35,8 +53,17 @@ export interface BuildHarnessInput {
 
 const SANITIZER_FLAGS = '-g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer'
 
-/** CWE prefix -> what a successful reproduction looks like. */
-const EXPECTED_FAILURE: Record<string, string> = {
+/**
+ * CWE prefix -> what a successful reproduction looks like.
+ *
+ * Exported because this is the only place the claim is made, and it is checkable:
+ * `harness.test.ts` holds it against the classes the report can name
+ * (`CLASS_NAMES`) and the classes the committed rule set can emit. A class the
+ * tool emits with no entry here still degrades honestly to "no class-specific
+ * signature is known" — which is a stated gap, not a failure — so a new class
+ * either lands here or is a decision someone made.
+ */
+export const EXPECTED_FAILURE: Record<string, string> = {
   'CWE-120':
     'a buffer overrun: expect a crash (SIGSEGV) or an AddressSanitizer ' +
     'stack-buffer-overflow / heap-buffer-overflow report naming the copy.',
@@ -47,35 +74,140 @@ const EXPECTED_FAILURE: Record<string, string> = {
   'CWE-476': 'a NULL pointer dereference: expect SIGSEGV at the dereference site.',
   'CWE-416': 'a use-after-free: expect an ASan heap-use-after-free report.',
   'CWE-415': 'a double free: expect an ASan double-free report.',
+  'CWE-401':
+    'a memory leak: expect an AddressSanitizer/LeakSanitizer report naming the allocation. This ' +
+    'class does not crash.',
   'CWE-190': 'an integer overflow: UBSan reports signed overflow, or the wraparound shows as an ' +
+    'implausible size reaching an allocation.',
+  'CWE-191':
+    'an integer underflow: UBSan reports the wrap as it happens, or the value reads back as an ' +
     'implausible size reaching an allocation.',
   'CWE-134': 'a format-string defect: expect a crash when the input contains `%s`/`%n`, or ' +
     'attacker-controlled output.',
   'CWE-78': 'command injection: expect the injected command to execute, observable in its output.',
+  'CWE-89':
+    'SQL injection: expect the injected fragment to appear in the query the target builds or ' +
+    'sends — observable output, not a crash.',
+  'CWE-338':
+    'weak pseudo-randomness: no crash. Run the target twice under the same or a controlled seed ' +
+    'and compare the values it generates.',
+  'CWE-377':
+    'an insecure temporary file: no crash. Pre-create the predictable path from a second process ' +
+    'and check whether the target uses the attacker-chosen file.',
   'CWE-362': 'a race: expect non-deterministic corruption or a crash under repeated concurrent ' +
     'execution. A single run does NOT disprove this class.',
+  'CWE-364':
+    'a signal-handler race: expect non-deterministic corruption or a crash only when the signal ' +
+    'lands inside the check-to-use window. A single run does NOT disprove this class.',
   'CWE-367':
     'a TOCTOU race: expect non-deterministic corruption only when the check-to-use window is ' +
     'hit. A single run does NOT disprove this class.',
+  'CWE-828':
+    'a signal handler calling non-async-signal-safe code: expect a deadlock or corruption only ' +
+    'under a signal storm, delivered while the handler is already running. A single run does NOT ' +
+    'disprove this class.',
+}
+
+/** `CWE-120` for any spelling of that class; null when it is not a CWE id at all. */
+const cweKey = (cwe: string | null): string | null => {
+  const match = cwe ? /CWE-(\d+)/i.exec(cwe) : null
+  return match ? `CWE-${match[1]}` : null
+}
+
+/**
+ * True when a class-specific observable is known.
+ *
+ * Separate from `expectedFailureFor` so a caller can tell "this class has no
+ * signature" — a stated gap — from "this CWE id was not recognised".
+ */
+export const hasFailureSignature = (cwe: string | null): boolean => {
+  const key = cweKey(cwe)
+  return key !== null && key in EXPECTED_FAILURE
 }
 
 const expectedFailureFor = (cwe: string | null): string => {
-  const match = cwe ? /CWE-(\d+)/i.exec(cwe) : null
-  const key = match ? `CWE-${match[1]}` : null
-  if (key && EXPECTED_FAILURE[key]) return EXPECTED_FAILURE[key]!
+  const key = cweKey(cwe)
+  const signature = key === null ? undefined : EXPECTED_FAILURE[key]
+  if (signature !== undefined) return signature
   return (
     'no class-specific signature is known for this finding. Observe for a crash, an ' +
     'AddressSanitizer/UBSan report, or a failed assertion, and record what you actually see.'
   )
 }
 
+const PLACEHOLDER_CALLABLE = 'TARGET_FUNCTION'
+
+/** Exactly the identifiers a C declaration may carry. */
+const C_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/
+
+/**
+ * C keywords. They cannot name a function, so they cannot appear in a declaration.
+ *
+ * The symbol index reads eleven languages, so a name that is legal where it was
+ * written can still be illegal in the C skeleton this module emits.
+ */
+const C_KEYWORDS = new Set([
+  'auto', 'break', 'case', 'char', 'const', 'continue', 'default', 'do', 'double', 'else', 'enum',
+  'extern', 'float', 'for', 'goto', 'if', 'inline', 'int', 'long', 'register', 'restrict', 'return',
+  'short', 'signed', 'sizeof', 'static', 'struct', 'switch', 'typedef', 'union', 'unsigned', 'void',
+  'volatile', 'while', '_Alignas', '_Alignof', '_Atomic', '_Bool', '_Complex', '_Generic',
+  '_Imaginary', '_Noreturn', '_Static_assert', '_Thread_local',
+])
+
+/**
+ * A name the skeleton can declare and call.
+ *
+ * `reason` is set when the index's name could not be used, so the emitted file can
+ * say *why* the researcher is looking at a placeholder instead of leaving them to
+ * infer it from a name that does not match their symbol. It is written to be a
+ * standalone sentence: capitalised, no full stop, and short enough to sit on one
+ * line of the emitted comment.
+ */
+interface Callable {
+  name: string
+  reason: string | null
+}
+
+const callableFor = (functionName: string | null): Callable => {
+  if (functionName === null) {
+    return {
+      name: PLACEHOLDER_CALLABLE,
+      reason: 'No enclosing function was resolved for this location',
+    }
+  }
+  if (!C_IDENTIFIER.test(functionName)) {
+    return {
+      name: PLACEHOLDER_CALLABLE,
+      reason: `The symbol index name \`${functionName}\` is not a C identifier`,
+    }
+  }
+  if (C_KEYWORDS.has(functionName)) {
+    return {
+      name: PLACEHOLDER_CALLABLE,
+      reason: `The symbol index name \`${functionName}\` is a C keyword`,
+    }
+  }
+  return { name: functionName, reason: null }
+}
+
 const pocSource = (input: {
   finding: Finding
-  functionName: string | null
+  callable: Callable
   targetLocation: string
 }): string => {
-  const fn = input.functionName ?? 'TARGET_FUNCTION'
-  const header = input.finding.filePath ?? '<header defining ' + fn + '>'
+  const { callable } = input
+  const header =
+    input.finding.filePath ?? `<header declaring ${callable.name}>`
+
+  const placeholderNote =
+    callable.reason === null
+      ? ''
+      : [
+          '',
+          `/* TODO: ${callable.reason}.`,
+          ' * The declaration and the call below are placeholders; supply the real name,',
+          ' * its arguments, and its expected return, then delete this note. */',
+        ].join('\n')
 
   return `/*
  * WindBreak reproduction harness — SKELETON, not a working exploit.
@@ -95,13 +227,13 @@ const pocSource = (input: {
 #include <stdlib.h>
 #include <string.h>
 
-/* TODO: replace with the real header for ${fn}, if any. */
+/* TODO: replace with the real header for the function under test, if any. */
 /* #include "${header}" */
-
+${placeholderNote}
 /* Declared here so the skeleton compiles even without the header; if you add
  * the include above, delete this declaration so the compiler checks it against
  * the real one. */
-extern int ${fn}(void);
+extern int ${callable.name}(void);
 
 int main(void) {
   /*
@@ -118,7 +250,7 @@ int main(void) {
   input[sizeof(input) - 1] = '\\0';
 
   /* TODO: call the function the way the real caller does. */
-  int result = ${fn}();
+  int result = ${callable.name}();
 
   printf("returned %d\\n", result);
   return 0;
@@ -138,7 +270,9 @@ set -euo pipefail
 
 export const generateHarness = (input: BuildHarnessInput): GeneratedHarness => {
   const compiler = input.compiler ?? 'cc'
-  const functionName = input.functionName ?? 'TARGET_FUNCTION'
+  const callable = callableFor(input.functionName ?? null)
+  /** What the instructions can call the function: its name, or a description. */
+  const described = callable.reason === null ? callable.name : 'the function under test'
 
   const buildInstructions: string[] = []
   buildInstructions.push(
@@ -178,7 +312,7 @@ export const generateHarness = (input: BuildHarnessInput): GeneratedHarness => {
       name: 'poc.c',
       contents: pocSource({
         finding: input.finding,
-        functionName: input.functionName,
+        callable,
         targetLocation: input.targetLocation,
       }),
       executable: false,
@@ -192,7 +326,7 @@ export const generateHarness = (input: BuildHarnessInput): GeneratedHarness => {
 
   const researcherInstructions = [
     'This harness was generated, not executed. WindBreak never runs it (spec D21).',
-    `1. Complete the TODOs in poc.c: include the real header for ${functionName}, and build the`,
+    `1. Complete the TODOs in poc.c: include the real header for ${described}, and build the`,
     '   input that reaches the flagged line with attacker-controlled data.',
     '2. Build it with the sanitizer flags in build-and-run.sh and run it outside WindBreak.',
     `3. Expected observable failure: ${expectedFailureFor(input.finding.cwe)}`,
