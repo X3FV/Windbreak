@@ -1311,7 +1311,13 @@ A real terminal run, driving the actual screen with a real queue: the queue was 
 
 #### 20.14.5 Open items
 
-- **The CLI's own test command cannot run in this checkout.** `cli/bunfig.toml` preloads `../test/setup-scm-loader.ts`, and `freebuff/test/` does not exist here, so `bun test` from `cli/` fails before any test loads — including untouched files like `queue-panel.test.tsx`. The CLI's tests above were run from the repository root instead, which applies the root `bunfig.toml`. `cli/src/agents/bundled-agents.generated.ts` (gitignored, normally produced by `bun run prebuild:agents`, whose preload is the third entry) was generated to make the import chain load.
+- **The CLI's own test command runs in this checkout now, and three unrelated groups of its tests still fail.** `bun test` from `cli/` used to stop before loading a file, because `cli/bunfig.toml` preloaded `../test/setup-scm-loader.ts` — a file the public snapshot had dropped along with the whole top-level `test/` directory — so the CLI tests in §20.14.4 were run from the repository root. That entry is gone: the plugin loaded `.scm` as text, and nothing needs it, because Bun resolves an unknown extension to the file's *path* and `packages/code-map/src/languages.ts` reads the query from that path when what it holds is absolute (with a comment saying so). The package now reports **3341 passing across 214 files**, with:
+  - **17 test files that cannot import their environment.** `cli/src/__tests__/test-utils.ts` loads `packages/internal/src/env`, which the public snapshot does not ship, and throws a message about `infisical run`. A separate gap from the preload above, and not a consequence of removing it: those files failed identically before — the counts below are the same with and without the preload, which is how that was checked.
+  - **12 clipboard and OSC 52 tests**, which need a native clipboard or `xclip`/`wl-copy`, none of which this container provides.
+  - **4 `FreebuffModelSelector` tier-layout tests**, whose cause was not established.
+  - **3 release-wrapper tests**, failing on `Cannot find package 'tar' from cli/release-core/launcher.js` — `tar` is required by that shipped launcher and declared in no `package.json`.
+
+  Those are **19 distinct tests**, which the runner reports as 36 failures: every failing test is printed twice, once where it happens and once in the summary, so the number in the summary is not the number to fix. The 18 unhandled errors are separate from them and are counted where they happen: 17 imports of the environment below, and an eighteenth from the same missing `tar`.
 - **There is no scrollbar widget.** The detail pane's position is carried in its border title (`lines 31–61/71`) and the queue's off-screen rows are counted (`↑ 3 more`), both hand-drawn. D32 keeps the CLI on its own components; the chat has no scrollbar to reuse.
 - **The resolved view is read-only in spirit.** Deciding a resolved entry overwrites it (and says what it replaced), but nothing prevents a decision being revised twice in a row, and no history of revisions is kept beyond the current row.
 - **`scan` is not reachable from the screen.** D32 puts the TUI off the scan path deliberately — "scanning is batch" — so starting or watching a scan is still a shell command.
@@ -2737,7 +2743,9 @@ Two honest caveats about what was *not* run: the CLI package's suite cannot run 
 all, because `cli/bunfig.toml` preloads `../test/setup-scm-loader.ts` and that file is
 absent from this checkout — a pre-existing gap that fails existing tests identically. Its
 new test was verified from the repo root instead, under the same `setup-env.ts` preload
-the package config uses, so the condition it runs in is the same. And the ordering
+the package config uses, so the condition it runs in is the same. (That gap is closed —
+§20.14.5 — so the workaround above is no longer needed; the paragraph is left as written,
+when it was.) And the ordering
 property these modules depend on is proven by the runs above rather than by a unit test:
 in a test process the fixture has already supplied values, so the snapshot is valid
 regardless of what the pre-init does.

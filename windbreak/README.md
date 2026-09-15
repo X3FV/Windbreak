@@ -124,8 +124,8 @@ different claims and one of them is much weaker:
 | `target: …` + `commit: …` | recon's inventory — the files the findings are about |
 | `root: … · not scanned · …` | a walk of the checkout on disk — **no finding cites these files** |
 
-The second is what you get in a checkout nothing has scanned, so `windbreak` in a repository is
-useful before its first scan — reachable from the start menu's *Files / codebase browser*, which
+The second is what you get in a checkout nothing has scanned, so the screen is useful in a
+repository before its first scan — reachable from the start menu's *Files / codebase browser*, which
 needs no database at all, or with `f` from the queue once one is open. It is the same walk recon uses (same ignore rules, same 50,000-file
 cap), it names the git root — or the directory you are in when there is no `.git` — and it says
 outright that a scan is what would make these rows mean something. Nothing else in the screen
@@ -569,7 +569,10 @@ and anything that has not survived verification is excluded *with a reason*
 rather than dropped silently. The writeup renderer refuses to emit a claim whose
 tier is unstated (spec §2.1.5).
 - **Harnesses are generated and never run (D21).** Each one states its expected
-observable failure and leaves TODO markers for the parts only you can supply.
+observable failure and leaves TODO markers for the parts only you can supply. The
+emitted skeleton is verified to be valid C — the test suite compiles every shape
+the generator can emit — but it declares its own prototype, so it does not link
+until you add the real header and signature.
 - **Artifacts are private.** The output directory is `0700` and every file
 `0600`, because writeups carry live exploit detail. Nothing is uploaded;
 submission is manual and tracked in the ledger.
@@ -634,8 +637,8 @@ snapshot from sweep time.
 
 ## The start menu, and the adjudication screen
 
-Typing `windbreak` opens a **start menu** for the checkout it was run in (spec
-§20.33):
+Typing `windbreak-tui` — or `freebuff windbreak`, where the freebuff on PATH carries the
+screen — opens a **start menu** for the checkout it was run in (spec §20.33):
 
 ```
 WindBreak  /home/researcher/project-a
@@ -748,16 +751,35 @@ wrapper ever does replace the binary, `freebuff-metadata.json` is what to look a
 first — and `~/.config/manicode/freebuff.stale` is where it parks the one it
 replaced.
 
-There is also `scripts/windbreak`, a PATH shim that walks up from the working
-directory to the nearest `.windbreak/state.db` (the way git finds `.git`), so the
-screen opens from anywhere inside a scanned project instead of only from its root.
-With no database to find it opens on the repository you are in instead — the file
-pane lists your checkout, marked as unscanned (§20.31) — so `windbreak` is useful
-in a fresh clone rather than only after a scan:
+Two shims put the screen on your PATH, and they differ in which copy of the code runs:
 
 ```bash
+# this checkout, from source — what to use while editing the screen
+ln -sf "$PWD/scripts/windbreak-tui" ~/.local/bin/windbreak-tui
+
+# a screen that lives inside an installed freebuff; forwards to `freebuff windbreak`
 install -m 755 scripts/windbreak ~/.local/bin/windbreak
 ```
+
+**`windbreak-tui` is a symlink because it runs this checkout's source**, so the link keeps
+it pointed at the code you are editing and an edit is live on the next run with no
+reinstall to forget. A copy works too, with `WINDBREAK_ROOT=<checkout>` exported — copied
+away from the checkout, the script has no path back to it, and says so rather than guessing.
+
+The same is true of `scripts/windbreak` where it applies, but on this checkout's freebuff
+release line it does not: `0.0.174` has no `windbreak` subcommand, and while the screen is
+being edited the installed binary is the *old* screen by definition. That is the whole
+reason `windbreak-tui` exists. Neither name is installed as a bare `windbreak` — the two
+names say which program you are getting.
+
+`windbreak-tui` opens on the target it runs *from*: `$WINDBREAK_TARGET`, else the checkout
+it belongs to. The screen's own rule is the directory you are in, which is the same answer
+when you are in the checkout. It resolves no database of its own either: the screen reads
+the checkout's own `.windbreak/state.db`, or the one that checkout's config names, so it
+opens from anywhere inside a scanned project rather than only from its root. With nothing
+to read it opens on the repository you are in instead — the file pane lists your checkout,
+marked as unscanned (§20.31) — so it is useful in a fresh clone rather than only after a
+scan:
 
 ```
  WindBreak adjudication  …/.windbreak/state.db
@@ -1104,12 +1126,154 @@ bun install          # from the repo root
 bun run windbreak    # == bun --cwd windbreak dev
 ```
 
+**Three spellings of the same CLI, and the examples below use the shortest.** `bun run
+windbreak` from the repo root and the package's own `windbreak` bin are the CLI itself;
+installed out of this checkout through the launcher it is `windbreak-cli` (see *The
+launcher* below). Anywhere an example says `windbreak scan`, an installed `windbreak-cli
+scan` is the same command — and neither is the screen, which is `windbreak-tui`.
+
 Checks:
 
 ```bash
 bun run typecheck:windbreak
 bun run test:windbreak
 ```
+
+### One target, without typing `--target` every time
+
+`--target` is still how a target is named, and a command with none still refuses rather
+than guessing. What it does not have to be is *repeated*: `<cwd>/.windbreak/config.json`
+can carry the default for the checkout you are working in.
+
+```json
+{
+  "target": {
+    "location": "..",
+    "db": "state.db"
+  }
+}
+```
+
+A relative path resolves against the **config file's own directory**, not the working
+directory, so a configured target means the same checkout no matter which shell the
+command came from. Resolving it against the working directory would make the default
+depend on where you happened to be — and the failure that prevents is the quiet one: a
+scan pointed at a stale sibling directory, reporting numbers about something other than
+what you think. The file above is the conventional one,
+`<target>/.windbreak/config.json`, so `".."` is the target and `"state.db"` resolves to
+`<target>/.windbreak/state.db` beside it — the same path the built-in default already
+uses, which is why `db` is only worth setting when state should live elsewhere.
+
+**Discovery is `$WINDBREAK_CONFIG` first, then `<cwd>/.windbreak/config.json`, and that
+is a trust decision worth naming.** The file it finds may be sitting inside a checkout
+WindBreak is about to scan. Everything in it is read-only to a scan — it selects models,
+budgets, extra rule paths and the default target, and it cannot cause code to run — but a
+repository that ships its own `.windbreak/config.json` can redirect the default target or
+widen the rule set of the tool scanning it. Point `$WINDBREAK_CONFIG` at a file outside
+the target when that matters for what you are scanning.
+
+What every command is running with is **one** document — the target default, the models,
+the budgets and the extra rule paths all resolve from the same file, so `config show`
+cannot report built-ins while a scan runs something else. It prints the file it read, so
+"is my config in effect" has an answer rather than an inference:
+
+```bash
+windbreak config show      # "source": null means no config was found, not an empty one
+```
+
+State in the target's own `.windbreak` is the convention, which is why the repository
+that holds it should ignore that directory: recon's dirty check runs `git status`, and an
+untracked `.windbreak/` under a scanned checkout makes every scan of it warn that the
+tree does not correspond to a committed revision.
+
+### The launcher
+
+`scripts/windbreak-cli` runs the CLI with the target as the working directory, which is
+the whole mechanism: run *from* the target and the discovered config, the state database,
+scratch space and reports all land in that one folder.
+
+```bash
+ln -sf "$PWD/windbreak/scripts/windbreak-cli" ~/.local/bin/windbreak-cli
+windbreak-cli scan --static-only --yes
+```
+
+A symlink for the same reason as `windbreak-tui`: both launchers run source out of this
+checkout, so a link cannot go stale the way a copy can. `install -m 755` still works, and
+then `WINDBREAK_ROOT=<checkout>` has to be exported for the script to find one.
+
+Both look for bun in `$BUN`, then `PATH`, then `${BUN_INSTALL:-~/.bun}/bin/bun`. The last
+one matters because a terminal that was already open when bun was installed never re-reads
+its rc file — "this shell cannot find bun" is a different finding from "bun is not
+installed", and only the second one is worth stopping for.
+
+`WINDBREAK_TARGET=/some/other/repo` points it at a different checkout, and an explicit
+`--target` or `--db` still wins over both — an option always beats a default. It is a
+different entry point from `scripts/windbreak-tui` beside it, which opens the adjudication
+screen; this one is the standalone scan surface.
+
+**The two entry points answer "which repository" differently, and it is worth knowing
+which one you are in.** The batch surface is the *configured* target: it runs from the
+target, so the config, the state database and the reports are all about that checkout no
+matter where you typed the command. The screen is *where you are*: it resolves the
+repository by walking up to `.git` and reads the database belonging to that checkout, so
+opening it in a subdirectory of a scanned project shows that project — and in a checkout
+nothing has scanned yet it opens the file pane on that checkout, marked unscanned.
+`windbreak-tui` resolves that from the target it runs from, so when `WINDBREAK_TARGET` names
+the same checkout the two entry points agree about which repository they are describing.
+
+```bash
+ln -sf "$PWD/windbreak/scripts/windbreak-tui" ~/.local/bin/windbreak-tui
+windbreak-tui                      # the screen, running this checkout's source
+```
+
+### Which database the screen opens
+
+The screen resolves its database from the *repository* it is showing, not from the
+directory the command was typed in, in this order:
+
+1. `--db`, when you name one.
+2. The `target.db` of that checkout's own config — `--config`, else `$WINDBREAK_CONFIG`,
+   else `<checkout>/.windbreak/config.json`.
+3. `<checkout>/.windbreak/state.db`, the convention every command writes to.
+
+Two things about that are deliberate and worth knowing.
+
+**A configured `db` outranks the convention, which is what makes `"db": "…"` mean
+anything to the screen.** Before this the screen resolved the conventional path only, so a
+checkout whose state had been moved opened an *absent* database and drew an empty queue over
+a run sitting in the file it had been told to use — an empty queue standing in for an unread
+one, which is the substitution §18 exists to prevent.
+
+**`--cwd` now moves the queue along with the repository.** It always moved the file pane —
+`--cwd` is what the screen resolves the repository from — while an earlier build resolved
+the default database at module load, against the *process* working directory, so the two
+disagreed. Resolving both from the same repository root is what closes that; the screen's own
+comment already claimed it, "resolved here, once … so the file pane and the models cannot be
+looking at two different checkout".
+
+**The chat pane's limits are the one thing still read only from a named `--config`**, and
+that asymmetry is on purpose. `target.db` is a path; the rest of the document selects models
+and budgets, and the ceiling on model calls is a *spend* limit. Reading it from the checkout —
+a directory that may be untrusted — would let a scanned repository raise the ceiling on the
+researcher's calls, so naming the file is how you raise it. The scan the screen can start
+still reads the discovered config, as every batch command does.
+
+The config is looked for at the **repository root** rather than the working directory, which
+is the one place this deliberately differs from `discoverConfigPath`: opened from
+`<repo>/src/deep`, the conventional path is a directory the config is not in, and a configured
+database would be silently ignored from every subdirectory. `$WINDBREAK_CONFIG` and
+`--config` behave exactly as they do elsewhere.
+
+One narrowing to know: the shim used to walk up for any `.windbreak/state.db`, so state
+placed above a tree with no `.git` anywhere was found from a subdirectory. The screen now
+anchors at the repository it lists, which for such a tree is the directory you are in — the
+file pane and the queue agree, but state kept further up is not discovered. Run from the
+directory that holds the state, or name it with `--db`.
+
+A `target.location` still means nothing to the screen, which opens on the checkout you are
+in. That one is not a gap: silently showing a repository you are not standing in is the
+worse of the two surprises, and in the conventional layout the two agree anyway —
+`<target>/.windbreak/config.json` is written `".."`, which is the checkout.
 
 ## Model routing
 

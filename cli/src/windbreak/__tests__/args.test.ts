@@ -1,12 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import path from 'path'
 
-import {
-  findWindbreakCommand,
-  parseWindbreakArgs,
-  WINDBREAK_DEFAULT_DB,
-  WindbreakUsageError,
-} from '../args'
+import { findWindbreakCommand, parseWindbreakArgs, WindbreakUsageError } from '../args'
 
 describe('findWindbreakCommand', () => {
   test('finds the subcommand in the plain invocation', () => {
@@ -36,15 +31,25 @@ describe('findWindbreakCommand', () => {
 })
 
 describe('parseWindbreakArgs', () => {
-  test('defaults to review against .windbreak/state.db', () => {
+  test('defaults to the review subcommand and names no database', () => {
+    // No `dbPath`: which database this screen opens depends on the repository on screen and
+    // that checkout's config, so it is `database.ts`'s decision, not the parser's. A parser
+    // that also invented a fallback could not tell an explicit `--db` from its own default,
+    // which is how a configured database came to be overridden by a guess.
     const args = parseWindbreakArgs([])
     expect(args).toEqual({
       subcommand: 'review',
-      dbPath: WINDBREAK_DEFAULT_DB,
       runId: undefined,
       includeResolved: false,
       cwd: process.cwd(),
     })
+  })
+
+  test('--db is reported only when it was named', () => {
+    expect(parseWindbreakArgs([]).dbPath).toBeUndefined()
+    expect(parseWindbreakArgs(['--db', 'state.db']).dbPath).toBe(
+      path.resolve(process.cwd(), 'state.db'),
+    )
   })
 
   test('accepts the subcommand token explicitly', () => {

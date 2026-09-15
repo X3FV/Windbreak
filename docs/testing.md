@@ -495,6 +495,10 @@ which is exactly "some earlier file did this", and running the affected files:
 ```bash
 echo ';(globalThis as any).requestAnimationFrame = () => 0' > /tmp/leak.ts
 cd freebuff-desktop && bun test \
-  --preload ../test/setup-scm-loader.ts --preload ../sdk/test/setup-env.ts --preload /tmp/leak.ts \
+  --preload ../sdk/test/setup-env.ts --preload /tmp/leak.ts \
   src/ui/shell/Tab.rename.test.tsx src/ui/agent/QuotaBadge.test.tsx
 ```
+
+The `setup-env.ts` preload is the one the packages actually declare (see each
+`bunfig.toml`); pass every preload a package declares, since leaving one out is itself a
+way to get a different "who ran first".

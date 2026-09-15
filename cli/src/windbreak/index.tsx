@@ -17,6 +17,7 @@ import { installProcessCleanupHandlers } from '../utils/renderer-cleanup'
 import { writeFileDescriptorSync } from '../utils/terminal-io'
 
 import { findWindbreakCommand, parseWindbreakArgs, WindbreakUsageError } from './args'
+import { resolveScreenDatabase } from './database'
 import { LoadingPane } from './loading-pane'
 import type { WindbreakPreferences } from './preferences'
 import { ReviewApp } from './review-app'
@@ -201,9 +202,27 @@ export const runWindbreakCommand = async (
   // to "which repository is this".
   const repoRoot = resolveRepoRoot(args.cwd)
 
+  // Which database the screen reads, resolved from the repository above rather than from the
+  // working directory: `--db` if named, else that checkout's own configured database, else its
+  // conventional `.windbreak/state.db`. Resolved here for the same reason `repoRoot` is — the
+  // queue, the scan and the file pane all have to be about one checkout, and a database picked
+  // anywhere else is a second answer to that question. A config that exists and cannot be read
+  // refuses the screen, as it does on the batch side.
+  let databasePath: string
+  try {
+    databasePath = resolveScreenDatabase({
+      named: args.dbPath,
+      configPath: args.configPath,
+      repoRoot,
+    })
+  } catch (error) {
+    writeErr(`windbreak: ${error instanceof Error ? error.message : String(error)}`)
+    return 2
+  }
+
   const resolveSession = deps.resolveSession ?? openReviewSession
   const opened = resolveSession({
-    dbPath: args.dbPath,
+    dbPath: databasePath,
     runId: args.runId,
     repoRoot,
   })
@@ -259,7 +278,7 @@ export const runWindbreakCommand = async (
   /** Reopen the queue's database — for the dashboard, or for the menu after a scan. */
   const reopen = (runId?: string): OpenReviewSessionResult =>
     resolveSession({
-      dbPath: args.dbPath,
+      dbPath: databasePath,
       ...(runId === undefined ? {} : { runId }),
       repoRoot,
     })
@@ -274,7 +293,7 @@ export const runWindbreakCommand = async (
    */
   const runScan: ScanRunner = (options) =>
     (deps.launchScan ?? runLaunchScan)({
-      dbPath: args.dbPath,
+      dbPath: databasePath,
       ...(repoRoot === null ? {} : { targetRoot: repoRoot }),
       ...(args.configPath === undefined ? {} : { configPath: args.configPath }),
       ...(options.runId === undefined ? {} : { runId: options.runId }),
@@ -391,7 +410,7 @@ export const runWindbreakCommand = async (
     // committed tree is still not a painted one. `flushSync` closes the first gate and
     // `idle()` the second. Without either, this is the blank pause with extra steps.
     const waitSubject =
-      session.source.absent || session.source.path === null ? repoRoot : args.dbPath
+      session.source.absent || session.source.path === null ? repoRoot : databasePath
     flushSync(() => {
       root.render(<LoadingPane subject={waitSubject} preferences={preferences} />)
     })
@@ -413,7 +432,7 @@ export const runWindbreakCommand = async (
     root.render(
       <ReviewApp
         session={session}
-        dbPath={args.dbPath}
+        dbPath={databasePath}
         runId={runId ?? undefined}
         includeResolvedInitially={args.includeResolved}
         preferences={preferences}
@@ -438,7 +457,7 @@ export const runWindbreakCommand = async (
     root.render(
       <StartMenu
         session={menuSession}
-        dbPath={args.dbPath}
+        dbPath={databasePath}
         repoRoot={repoRoot}
         preferences={preferences}
         runScan={runScan}

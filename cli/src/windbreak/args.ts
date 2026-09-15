@@ -12,12 +12,21 @@ import { Command, CommanderError, Option } from 'commander'
  * lets `freebuff windbreak --help` describe only what it accepts.
  */
 
-export const WINDBREAK_DEFAULT_DB = path.resolve('.windbreak', 'state.db')
-
 export interface WindbreakArgs {
   /** The only subcommand so far; the token is optional. */
   subcommand: 'review'
-  dbPath: string
+  /**
+   * `--db`, when the caller named one — **never a default**.
+   *
+   * The database this screen opens depends on the repository on screen and that checkout's own
+   * config, neither of which is known here, so choosing one is `database.ts`'s job. This reports
+   * what was *asked for*; a parser that also invented a fallback could not tell the two apart,
+   * which is exactly how a configured database came to be overridden by a guess.
+   *
+   * Same shape as the batch commands, whose `--db` carries no default either — the command
+   * resolves `options.db ?? defaultDbPath()`.
+   */
+  dbPath?: string | undefined
   runId?: string | undefined
   includeResolved: boolean
   /** `--cwd`, so the default database path follows the client's working dir. */
@@ -82,8 +91,7 @@ const buildProgram = (): Command => {
     .argument('[subcommand]', `what to open (default: ${DEFAULT_SUBCOMMAND})`)
     .option(
       '--db <path>',
-      'WindBreak state database to read and write',
-      WINDBREAK_DEFAULT_DB,
+      "WindBreak state database to read and write (default: the checkout's own)",
     )
     .option('--run <id>', 'only the disagreements from this run')
     .addOption(
@@ -134,7 +142,7 @@ export const parseWindbreakArgs = (argvAfterCommand: readonly string[]): Windbre
   }
 
   const options = program.opts<{
-    db: string
+    db?: string
     run?: string
     all: boolean
     cwd?: string
@@ -154,10 +162,16 @@ export const parseWindbreakArgs = (argvAfterCommand: readonly string[]): Windbre
 
   return {
     subcommand: DEFAULT_SUBCOMMAND,
-    // A relative --db follows the client's working directory, not the shell's:
-    // the launcher changes directory for the whole session, and a database is
-    // found where the scan that wrote it was run from.
-    dbPath: path.isAbsolute(options.db) ? options.db : path.resolve(cwd, options.db),
+    // A relative --db follows the client's working directory, not the shell's: the launcher
+    // changes directory for the whole session, and a database is found where the scan that
+    // wrote it was run from. Absent stays absent — see `dbPath` above.
+    ...(options.db === undefined
+      ? {}
+      : {
+          dbPath: path.isAbsolute(options.db)
+            ? options.db
+            : path.resolve(cwd, options.db),
+        }),
     runId: options.run?.trim() ? options.run.trim() : undefined,
     includeResolved: options.all === true,
     cwd,

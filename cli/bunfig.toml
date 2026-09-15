@@ -1,18 +1,25 @@
 [test]
-# bun reads bunfig.toml and .env from the CWD only, so this package needs all
-# three preloads of its own:
+# bun reads bunfig.toml and .env from the CWD only, so this package needs both
+# preloads of its own:
 #  - setup-env.ts, or a file reaching @codebuff/common/env through a module that
 #    doesn't import src/__tests__/test-utils.ts dies at import.
-#  - setup-scm-loader.ts, for the .scm queries @codebuff/code-map loads via the
-#    @codebuff/sdk barrel.
 #  - setup-agents-artifact.ts, which builds the gitignored bundled-agents module
 #    that CI produces with `bun run prebuild:agents`.
 # Why an import-time throw is invisible rather than red: docs/testing.md.
+#
+# Why there is no `.scm` loader, since one was listed here for a long time. A preload
+# for it existed at `test/setup-scm-loader.ts` — a Bun plugin loading `.scm` as text
+# (added in ff89b5704) — and the public snapshot dropped the whole top-level `test/`
+# directory (61bbbed7a) without updating this list. A missing preload stops `bun test`
+# from starting at all, so this package's suite could not run. The plugin is not
+# needed: Bun resolves an unknown extension to the file's *path*, and
+# `packages/code-map/src/languages.ts` reads the query from that path when what it
+# holds is absolute — with a comment saying exactly that. The sdk preloads no such
+# plugin either. Please do not re-add one without deleting that branch first.
 #
 # *.integration.test.* is not excluded here: bun 1.3.14 ignores [test].exclude,
 # which is why CI filters those with `find ... ! -name` instead.
 preload = [
   "../sdk/test/setup-env.ts",
-  "../test/setup-scm-loader.ts",
   "./test/setup-agents-artifact.ts",
 ]
