@@ -29,7 +29,7 @@
 
 import path from 'path'
 
-import { loadConfig } from '../config'
+import { loadEffectiveConfig } from '../config'
 import { readGitRefs } from '../recon/git'
 import { createTargetId } from '../recon/run'
 import { openStateDatabase } from '../state/db'
@@ -125,9 +125,14 @@ const launch = async (options: LaunchScanOptions): Promise<LaunchScanOutcome> =>
   // not one a half-run scan was started against. Only *violations* refuse: §20.29.6's
   // rule that the screen runs no verdict roles does not apply here — this is the scan,
   // and the roles it is about to run are exactly the ones the config is validated for.
-  let loaded: ReturnType<typeof loadConfig>
+  let loaded: ReturnType<typeof loadEffectiveConfig>
   try {
-    loaded = loadConfig(options.configPath)
+    // The *effective* config, so the menu's scan is governed by the same document the
+    // commands are: `--config` when the screen was given one, else the `.windbreak` config
+    // discovered from the working directory. Reading only the named file here made the
+    // menu run the built-in models in a checkout whose config asked for others — the
+    // tool disagreeing with itself about which config is in effect.
+    loaded = loadEffectiveConfig(options.configPath)
   } catch (error) {
     return {
       ok: false,

@@ -2,7 +2,6 @@ import fs from 'fs'
 import path from 'path'
 
 import { MissingCredentialsError, SdkEnvironmentError, createWindbreakClient } from '../client'
-import { loadConfig } from '../config'
 import { createRun, finishRun, persistCandidates, readCandidateSummary } from '../engines'
 import {
   capturePattern,
@@ -18,12 +17,18 @@ import {
 } from '../library'
 import { createProgramContext, createSdkModelInvoker, readCandidate } from '../pipeline'
 import { openStateDatabase } from '../state/db'
+import {
+  DB_OPTION_DESCRIPTION,
+  defaultDbPath,
+  defaultTargetPath,
+  effectiveConfig,
+  requireTargetOption,
+  TARGET_OPTION_DESCRIPTION,
+} from './defaults'
 import { describeMissingTarget, resolveCommandTarget } from './target'
 
 import type { Command } from 'commander'
 import type { Fingerprint, LibraryEntry } from '../library'
-
-const DEFAULT_DB_PATH = path.resolve('.windbreak', 'state.db')
 
 /** `human-reproduced` is the only tier that makes a pattern replay freely (§10). */
 const GATE_LABEL = (entry: LibraryEntry): string =>
@@ -102,7 +107,7 @@ export const registerLibraryCommand = (program: Command): void => {
     .command('add')
     .description('Turn a confirmed finding into a validated, stored pattern')
     .requiredOption('--candidate <id>', 'the confirmed candidate to generalize')
-    .option('--db <path>', 'state database path', DEFAULT_DB_PATH)
+    .option('--db <path>', DB_OPTION_DESCRIPTION)
     .option('--config <path>', 'config file with model settings')
     .option(
       '--fingerprint <path>',
@@ -123,7 +128,7 @@ export const registerLibraryCommand = (program: Command): void => {
       postImage?: string
       cache?: boolean
     }) => {
-      const databasePath = options.db ?? DEFAULT_DB_PATH
+      const databasePath = options.db ?? defaultDbPath()
       const database = openStateDatabase(databasePath)
 
       try {
@@ -153,7 +158,7 @@ export const registerLibraryCommand = (program: Command): void => {
         // not require a provider to be reachable.
         let invoker
         if (!supplied) {
-          const loaded = loadConfig(options.config)
+          const loaded = effectiveConfig(options.config)
           if (loaded.violations.length > 0) {
             console.error('Configuration is invalid; refusing to run:')
             for (const violation of loaded.violations) {
@@ -252,12 +257,12 @@ export const registerLibraryCommand = (program: Command): void => {
   library
     .command('list')
     .description('List the patterns in the library')
-    .option('--db <path>', 'state database path', DEFAULT_DB_PATH)
+    .option('--db <path>', DB_OPTION_DESCRIPTION)
     .option('--all', 'include retired patterns')
     .option('--pattern <id>', 'restrict to one pattern id')
     .option('--json', 'emit machine-readable output')
     .action((options: CommonOptions & { all?: boolean; pattern?: string }) => {
-      const database = openStateDatabase(options.db ?? DEFAULT_DB_PATH)
+      const database = openStateDatabase(options.db ?? defaultDbPath())
       try {
         const entries = readLibrary(database, {
           includeRetired: options.all === true,
@@ -293,14 +298,14 @@ export const registerLibraryCommand = (program: Command): void => {
     .command('show')
     .description('Show one pattern, its fingerprint, and its replay history')
     .argument('<checkerId>', 'checker id, as listed by `library list`')
-    .option('--db <path>', 'state database path', DEFAULT_DB_PATH)
+    .option('--db <path>', DB_OPTION_DESCRIPTION)
     .option('--json', 'emit machine-readable output')
     .action((checkerId: string, options: CommonOptions) => {
-      const database = openStateDatabase(options.db ?? DEFAULT_DB_PATH)
+      const database = openStateDatabase(options.db ?? defaultDbPath())
       try {
         const entry = readChecker(database, checkerId)
         if (!entry) {
-          console.error(`No checker ${checkerId} in ${options.db ?? DEFAULT_DB_PATH}.`)
+          console.error(`No checker ${checkerId} in ${options.db ?? defaultDbPath()}.`)
           process.exitCode = 1
           return
         }
@@ -336,10 +341,10 @@ export const registerLibraryCommand = (program: Command): void => {
     .command('retire')
     .description('Retire a noisy pattern without deleting its history')
     .argument('<checkerId>', 'checker id to retire')
-    .option('--db <path>', 'state database path', DEFAULT_DB_PATH)
+    .option('--db <path>', DB_OPTION_DESCRIPTION)
     .option('--json', 'emit machine-readable output')
     .action((checkerId: string, options: CommonOptions) => {
-      const database = openStateDatabase(options.db ?? DEFAULT_DB_PATH)
+      const database = openStateDatabase(options.db ?? defaultDbPath())
       try {
         const changed = retireChecker(database, checkerId)
 
@@ -369,9 +374,9 @@ export const registerLibraryCommand = (program: Command): void => {
     .command('replay')
     .alias('hunt')
     .description('Replay confirmed patterns against a target (spec §4.8, §12.2)')
-    .requiredOption('--target <path>', 'the target to sweep')
+    .option('--target <path>', TARGET_OPTION_DESCRIPTION, defaultTargetPath())
     .option('--commit <sha>', 'commit to pin; defaults to the checkout HEAD')
-    .option('--db <path>', 'state database path', DEFAULT_DB_PATH)
+    .option('--db <path>', DB_OPTION_DESCRIPTION)
     .option('--pattern <id>', 'replay only this pattern')
     .option('--post-image <targetId>', "a target containing the fix; patterns must not match it")
     .option(
@@ -381,19 +386,22 @@ export const registerLibraryCommand = (program: Command): void => {
     .option('--max-candidates <n>', 'per-pattern candidate cap')
     .option('--json', 'emit machine-readable output')
     .action((options: CommonOptions & {
-      target: string
+      target?: string
       commit?: string
       pattern?: string
       postImage?: string
       allowStaticallyVerified?: boolean
       maxCandidates?: string
     }) => {
-      const databasePath = options.db ?? DEFAULT_DB_PATH
+      const targetPath = requireTargetOption(options.target)
+      if (targetPath === null) return
+
+      const databasePath = options.db ?? defaultDbPath()
       const database = openStateDatabase(databasePath)
 
       try {
         const target = resolveCommandTarget({
-          target: options.target,
+          target: targetPath,
           ...(options.commit ? { commit: options.commit } : {}),
           db: database,
         })

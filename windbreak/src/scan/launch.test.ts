@@ -94,9 +94,9 @@ describe('launchScan', () => {
 
   test('a config that does not validate is a reason, not a rejection', async () => {
     // The screen awaits this and then renders whatever comes back, so a *thrown* config
-    // error would leave it on a running scan that had already stopped. `loadConfig` throws
-    // for a structurally broken file rather than returning violations, which is exactly the
-    // path that has to be caught.
+    // error would leave it on a running scan that had already stopped. Reading the config
+    // throws for a structurally broken file rather than returning violations, which is
+    // exactly the path that has to be caught.
     const dir = tempDir('windbreak-launch-')
     const configPath = path.join(dir, 'wb.json')
     fs.writeFileSync(configPath, JSON.stringify({ models: { proposer: { model: 'x' } } }))
@@ -148,6 +148,47 @@ describe('launchScan', () => {
     }
     fs.rmSync(dir, { recursive: true, force: true })
     fs.rmSync(repo, { recursive: true, force: true })
+  })
+
+  test('a discovered config governs the scan when no file was named', async () => {
+    // The screen passes `configPath` only when it was given a `--config`. Without this the
+    // menu's scan would run the built-in models in a checkout whose own `.windbreak`
+    // config asked for others, which is the menu and the batch commands disagreeing about
+    // which config is in effect. The violation is the observable: it can only be reported
+    // if the discovered file was read.
+    const dir = tempDir('windbreak-launch-')
+    const configPath = path.join(dir, 'wb.json')
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify({
+        models: {
+          ...DEFAULT_MODEL_CONFIG,
+          proposer: {
+            ...DEFAULT_MODEL_CONFIG.proposer,
+            model: DEFAULT_MODEL_CONFIG.refuter.model,
+          },
+        },
+      }),
+    )
+    const repo = tempDir('windbreak-repo-')
+    const previousEnv = process.env.WINDBREAK_CONFIG
+
+    try {
+      process.env.WINDBREAK_CONFIG = configPath
+
+      const outcome = await launchScan({
+        dbPath: path.join(dir, 'state.db'),
+        targetRoot: repo,
+      })
+
+      expect(outcome.ok).toBe(false)
+      if (!outcome.ok) expect(outcome.reason).toContain('configuration is invalid')
+    } finally {
+      if (previousEnv === undefined) delete process.env.WINDBREAK_CONFIG
+      else process.env.WINDBREAK_CONFIG = previousEnv
+      fs.rmSync(dir, { recursive: true, force: true })
+      fs.rmSync(repo, { recursive: true, force: true })
+    }
   })
 
   test('a run with nothing left to do comes back as a result, not a fresh pipeline', async () => {

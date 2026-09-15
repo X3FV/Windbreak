@@ -3,13 +3,20 @@
 # `windbreak` — open the adjudication screen from any directory.
 #
 # The screen itself lives in the freebuff CLI (`freebuff windbreak`, spec D32 /
-# §5.3). This is only a dispatcher, because that surface resolves its default
-# database as `./.windbreak/state.db` — relative to the *current* directory — so
-# running it from a subdirectory of a scanned project would look for a queue in
-# the wrong place. When the caller names no database, this walks up to the
-# nearest `.windbreak/state.db` the way git finds `.git`, and passes it
-# explicitly. `--db` and `--cwd` are left alone: those are how a caller says
-# which database it wants, and a caller that says gets it.
+# §5.3). This is a dispatcher and nothing more: `--db` and `--cwd` are forwarded
+# untouched so a caller that names what it wants gets it.
+#
+# Why it no longer walks up to a `.windbreak/state.db` of its own. It used to,
+# because the screen resolved its default database as `./.windbreak/state.db` —
+# relative to the *current* directory — while resolving the repository it shows by
+# walking up to `.git`. From a subdirectory those two disagreed, so the wrapper
+# patched the database half in bash, and passed its guess as `--db`.
+#
+# The screen now resolves the database itself (cli/src/windbreak/database.ts), from
+# the same repository root it already resolves, and it knows about the checkout's own
+# `.windbreak/config.json` — which the bash walk-up could not read, and which is why a
+# configured `"db"` used to be overridden by this script's guess. Two implementations
+# of one resolution was the bug; this is the one that went away.
 #
 # Install:
 #   install -m 755 scripts/windbreak ~/.local/bin/windbreak
@@ -19,37 +26,10 @@
 # not that — from a PATH named `windbreak` you get the TUI; the scan surface is
 # still `bun run src/index.ts …` from the checkout.
 
-DB_RELATIVE='.windbreak/state.db'
-
 if ! command -v freebuff >/dev/null 2>&1; then
   printf 'windbreak: needs `freebuff` on PATH — the adjudication screen ships inside it.\n' >&2
   printf 'windbreak: install the freebuff CLI, or run `freebuff windbreak` from a build.\n' >&2
   exit 127
 fi
 
-args=("$@")
-
-caller_chose_db=0
-for arg in "$@"; do
-  case "$arg" in
-    --db | --db=* | --cwd | --cwd=*) caller_chose_db=1 ;;
-  esac
-done
-
-if [ "$caller_chose_db" -eq 0 ]; then
-  dir="$PWD"
-  while :; do
-    if [ -f "$dir/$DB_RELATIVE" ]; then
-      args+=("--db" "$dir/$DB_RELATIVE")
-      break
-    fi
-    parent=$(dirname "$dir")
-    # `dirname /` is `/`; that is the stop condition.
-    if [ "$parent" = "$dir" ]; then
-      break
-    fi
-    dir="$parent"
-  done
-fi
-
-exec freebuff windbreak "${args[@]}"
+exec freebuff windbreak "$@"

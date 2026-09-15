@@ -1,6 +1,7 @@
 import path from 'path'
 
 import { buildStepArgv, prepareBuild, runBuild } from '../build'
+import { defaultTargetPath, requireTargetOption, TARGET_OPTION_DESCRIPTION } from './defaults'
 import { formatArgv, parseBackendName } from './format'
 
 import type { Command } from 'commander'
@@ -8,7 +9,7 @@ import type { Command } from 'commander'
 const DEFAULT_SCRATCH = path.resolve('.windbreak', 'scratch')
 
 interface BuildCommandOptions {
-  target: string
+  target?: string
   scratch?: string
   compile?: boolean
   jobs?: string
@@ -40,7 +41,7 @@ export const registerBuildCommand = (program: Command): void => {
     .description(
       'Generate a compilation database by running the target build inside the sandbox',
     )
-    .requiredOption('--target <path>', 'path to the target checkout')
+    .option('--target <path>', TARGET_OPTION_DESCRIPTION, defaultTargetPath())
     .option('--scratch <path>', 'per-run scratch directory', DEFAULT_SCRATCH)
     .option('--compile', 'also compile, not just configure')
     .option('--jobs <n>', 'parallelism for build tools', '4')
@@ -48,6 +49,9 @@ export const registerBuildCommand = (program: Command): void => {
     .option('--time-limit <seconds>', 'wall-clock limit for each step')
     .option('--dry-run', 'print the sandboxed commands without executing them')
     .action(async (options: BuildCommandOptions) => {
+      const targetPath = requireTargetOption(options.target)
+      if (targetPath === null) return
+
       const preferredBackend = parseBackendName(options.backend)
       const jobs = parsePositiveInt(options.jobs, '--jobs')
       const timeLimitSeconds = parsePositiveInt(
@@ -56,7 +60,7 @@ export const registerBuildCommand = (program: Command): void => {
       )
 
       const runOptions = {
-        checkoutDir: options.target,
+        checkoutDir: targetPath,
         scratchDir: options.scratch ?? DEFAULT_SCRATCH,
         compile: options.compile ?? false,
         ...(jobs !== undefined ? { jobs } : {}),

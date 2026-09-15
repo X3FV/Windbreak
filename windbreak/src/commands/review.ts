@@ -1,4 +1,3 @@
-import path from 'path'
 import readline from 'readline'
 
 import {
@@ -6,11 +5,10 @@ import {
   recordAdjudicationDecision,
 } from '../pipeline'
 import { openStateDatabase } from '../state/db'
+import { DB_OPTION_DESCRIPTION, defaultDbPath } from './defaults'
 
 import type { Command } from 'commander'
 import type { AdjudicationDecision, QueueEntry } from '../pipeline'
-
-const DEFAULT_DB_PATH = path.resolve('.windbreak', 'state.db')
 
 interface ReviewCommandOptions {
   db?: string
@@ -45,7 +43,7 @@ export const registerReviewCommand = (program: Command): void => {
   program
     .command('review')
     .description('Work the human adjudication queue (spec §5.3)')
-    .option('--db <path>', 'state database path', DEFAULT_DB_PATH)
+    .option('--db <path>', DB_OPTION_DESCRIPTION)
     .option('--run <id>', 'only entries from this run')
     .option('--all', 'include already-resolved entries')
     .option('--decide <candidateId>', 'resolve one entry non-interactively')
@@ -53,7 +51,7 @@ export const registerReviewCommand = (program: Command): void => {
     .option('--rationale <text>', 'with --decide: why')
     .option('--json', 'emit machine-readable output')
     .action(async (options: ReviewCommandOptions) => {
-      const databasePath = options.db ?? DEFAULT_DB_PATH
+      const databasePath = options.db ?? defaultDbPath()
       const database = openStateDatabase(databasePath)
 
       try {

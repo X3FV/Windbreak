@@ -93,3 +93,11 @@ ads-pilot-launch.local.json
 
 # Short-lived GitHub OIDC credentials for the bounded IntentBuff runner.
 gha-creds-*.json
+
+# WindBreak's run state — the SQLite database, per-run scratch, generated reports, and
+# `config.json` (the default target). It lives inside the *scanned* checkout by
+# convention, because that is what makes `windbreak <command>` run from the target mean
+# the obvious thing (see `windbreak/scripts/windbreak-cli`). Recon runs `git status` for
+# its dirty check, so leaving this untracked would make every scan of this repository
+# warn that it does not correspond to a committed revision.
+.windbreak/

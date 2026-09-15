@@ -1,5 +1,5 @@
-import { loadConfig } from '../config'
 import { modelVendor, UNMETERED_MODEL_IDS } from '../models'
+import { effectiveConfig } from './defaults'
 
 import type { Command } from 'commander'
 
@@ -19,7 +19,7 @@ export const registerConfigCommand = (program: Command): void => {
     )
     .option('--config <path>', 'path to a windbreak config file')
     .action((options: ConfigCommandOptions) => {
-      const { violations, sourcePath } = loadConfig(options.config)
+      const { violations, sourcePath } = effectiveConfig(options.config)
 
       if (sourcePath) {
         console.log(`Config: ${sourcePath}`)
@@ -44,7 +44,7 @@ export const registerConfigCommand = (program: Command): void => {
     .description('Print the effective configuration')
     .option('--config <path>', 'path to a windbreak config file')
     .action((options: ConfigCommandOptions) => {
-      const { config: loaded, sourcePath } = loadConfig(options.config)
+      const { config: loaded, sourcePath } = effectiveConfig(options.config)
 
       console.log(JSON.stringify({ source: sourcePath, ...loaded }, null, 2))
     })

@@ -10,13 +10,12 @@ import {
 } from '../report'
 import { openStateDatabase } from '../state/db'
 import { VERSION } from '../version'
+import { DB_OPTION_DESCRIPTION, defaultDbPath, defaultTargetPath } from './defaults'
 import { describeMissingTarget, resolveCommandTarget } from './target'
 
 import type { Database } from 'bun:sqlite'
 import type { Command } from 'commander'
 import type { DisclosureStatus } from '../report'
-
-const DEFAULT_DB_PATH = path.resolve('.windbreak', 'state.db')
 
 interface ReportCommandOptions {
   target?: string
@@ -47,9 +46,13 @@ export const registerReportCommand = (program: Command): void => {
   program
     .command('report')
     .description('Write SARIF, tiered writeups, and manual harnesses from recorded state')
-    .option('--target <path>', 'target checkout; defaults to the run\'s recorded location')
+    .option(
+      '--target <path>',
+      "target checkout; defaults to the configured target, then to the run's recorded location",
+      defaultTargetPath(),
+    )
     .option('--run <id>', 'run to report on; defaults to the target\'s latest run')
-    .option('--db <path>', 'state database path', DEFAULT_DB_PATH)
+    .option('--db <path>', DB_OPTION_DESCRIPTION)
     .option('--out <dir>', 'output directory (default: .windbreak/reports/<runId>)')
     .option(
       '--reproduced <candidateId...>',
@@ -62,7 +65,7 @@ export const registerReportCommand = (program: Command): void => {
     .option('--note <text>', 'with --set-status: a note')
     .option('--json', 'emit machine-readable output')
     .action(async (options: ReportCommandOptions) => {
-      const databasePath = options.db ?? DEFAULT_DB_PATH
+      const databasePath = options.db ?? defaultDbPath()
       const database = openStateDatabase(databasePath)
 
       try {

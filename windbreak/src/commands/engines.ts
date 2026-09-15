@@ -1,5 +1,3 @@
-import path from 'path'
-
 import {
   createBudgetGovernor,
   createInteractiveDecider,
@@ -14,17 +12,22 @@ import {
   runBaselineEngines,
 } from '../engines'
 import { resolveRulePaths } from '../engines/rules'
-import { loadConfig } from '../config'
+import { loadEffectiveConfig } from '../config'
 import { openStateDatabase } from '../state/db'
+import {
+  DB_OPTION_DESCRIPTION,
+  defaultDbPath,
+  defaultTargetPath,
+  requireTargetOption,
+  TARGET_OPTION_DESCRIPTION,
+} from './defaults'
 import { describeMissingTarget, resolveCommandTarget } from './target'
 import { parseBackendName } from './format'
 
 import type { Command } from 'commander'
 
-const DEFAULT_DB_PATH = path.resolve('.windbreak', 'state.db')
-
 interface EnginesCommandOptions {
-  target: string
+  target?: string
   commit?: string
   db?: string
   config?: string
@@ -46,16 +49,19 @@ export const registerEnginesCommand = (program: Command): void => {
     .description(
       'Run the baseline static engines (spec §4.3) and record normalized candidates',
     )
-    .requiredOption('--target <path>', 'path to the target checkout')
+    .option('--target <path>', TARGET_OPTION_DESCRIPTION, defaultTargetPath())
     .option('--commit <sha>', 'commit to pin; defaults to the checkout HEAD')
-    .option('--db <path>', 'state database path', DEFAULT_DB_PATH)
+    .option('--db <path>', DB_OPTION_DESCRIPTION)
     .option('--config <path>', 'config file with engine and budget settings')
     .option('--backend <name>', 'require a specific sandbox backend')
     .option('--budget-seconds <n>', 'override the total target budget')
     .option('--yes', 'non-interactive: budget overruns degrade rather than prompt')
     .option('--json', 'emit machine-readable output')
     .action(async (options: EnginesCommandOptions) => {
-      const loaded = loadConfig(options.config)
+      const targetPath = requireTargetOption(options.target)
+      if (targetPath === null) return
+
+      const loaded = loadEffectiveConfig(options.config)
       const { config } = loaded
 
       if (loaded.violations.length > 0) {
@@ -67,13 +73,13 @@ export const registerEnginesCommand = (program: Command): void => {
         return
       }
 
-      const databasePath = options.db ?? DEFAULT_DB_PATH
+      const databasePath = options.db ?? defaultDbPath()
       const database = openStateDatabase(databasePath)
       const preferredBackend = parseBackendName(options.backend)
 
       try {
         const target = resolveCommandTarget({
-          target: options.target,
+          target: targetPath,
           ...(options.commit ? { commit: options.commit } : {}),
           db: database,
         })

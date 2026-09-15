@@ -9,6 +9,7 @@ import { Command } from 'commander'
 import { registerAuthCommand } from './commands/auth'
 import { registerBuildCommand } from './commands/build'
 import { registerConfigCommand } from './commands/config'
+import { initCommandDefaults } from './commands/defaults'
 import { registerDbCommand } from './commands/db'
 import { registerEnginesCommand } from './commands/engines'
 import { registerEvalCommand } from './commands/eval'
@@ -64,5 +65,15 @@ export const createProgram = (): Command => {
 }
 
 if (import.meta.main) {
+  // Before `createProgram`, because commander reads an option's default at
+  // registration and `--target`/`--db` default from the config file. A config that
+  // cannot be read stops the CLI here, where it can be said once (see
+  // `commands/defaults`).
+  const defaults = initCommandDefaults()
+  if (!defaults.ok) {
+    console.error(defaults.message)
+    process.exit(1)
+  }
+
   createProgram().parse(process.argv)
 }

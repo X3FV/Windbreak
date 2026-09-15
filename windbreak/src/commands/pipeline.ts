@@ -1,5 +1,3 @@
-import path from 'path'
-
 import {
   createBudgetGovernor,
   createInteractiveDecider,
@@ -11,7 +9,7 @@ import {
   SdkEnvironmentError,
   createWindbreakClient,
 } from '../client'
-import { loadConfig } from '../config'
+import { loadEffectiveConfig } from '../config'
 import { OsvClient } from '../osv'
 import {
   runPipeline,
@@ -21,15 +19,20 @@ import {
   readCandidatesForTriage,
 } from '../pipeline'
 import { openStateDatabase } from '../state/db'
+import {
+  DB_OPTION_DESCRIPTION,
+  defaultDbPath,
+  defaultTargetPath,
+  requireTargetOption,
+  TARGET_OPTION_DESCRIPTION,
+} from './defaults'
 import { describeMissingTarget, resolveCommandTarget } from './target'
 
 import type { Command } from 'commander'
 import type { KnownVulnRecord } from '../pipeline'
 
-const DEFAULT_DB_PATH = path.resolve('.windbreak', 'state.db')
-
 interface PipelineCommandOptions {
-  target: string
+  target?: string
   commit?: string
   db?: string
   config?: string
@@ -56,9 +59,9 @@ export const registerPipelineCommand = (program: Command): void => {
     .description(
       'Triage recorded candidates and cross-model-verify them (spec §4.6, §5.2)',
     )
-    .requiredOption('--target <path>', 'path to the target checkout')
+    .option('--target <path>', TARGET_OPTION_DESCRIPTION, defaultTargetPath())
     .option('--commit <sha>', 'commit to pin; defaults to the checkout HEAD')
-    .option('--db <path>', 'state database path', DEFAULT_DB_PATH)
+    .option('--db <path>', DB_OPTION_DESCRIPTION)
     .option('--config <path>', 'config file with model and budget settings')
     .option('--run <id>', 'run to attach to; defaults to the target\'s latest run')
     .option('--budget-seconds <n>', 'override the total target budget')
@@ -68,7 +71,10 @@ export const registerPipelineCommand = (program: Command): void => {
     .option('--no-refresh', 'do not re-query OSV for the rediscovery check')
     .option('--json', 'emit machine-readable output')
     .action(async (options: PipelineCommandOptions) => {
-      const loaded = loadConfig(options.config)
+      const targetPath = requireTargetOption(options.target)
+      if (targetPath === null) return
+
+      const loaded = loadEffectiveConfig(options.config)
       const { config } = loaded
 
       // §5.2 / §18: Proposer and Refuter on the same provider is refused, not
@@ -82,12 +88,12 @@ export const registerPipelineCommand = (program: Command): void => {
         return
       }
 
-      const databasePath = options.db ?? DEFAULT_DB_PATH
+      const databasePath = options.db ?? defaultDbPath()
       const database = openStateDatabase(databasePath)
 
       try {
         const target = resolveCommandTarget({
-          target: options.target,
+          target: targetPath,
           ...(options.commit ? { commit: options.commit } : {}),
           db: database,
         })

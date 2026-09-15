@@ -1,24 +1,27 @@
-import path from 'path'
-
 import {
   createBudgetGovernor,
   createInteractiveDecider,
   createNonInteractiveDecider,
   formatSeconds,
 } from '../budget'
-import { loadConfig } from '../config'
+import { loadEffectiveConfig } from '../config'
 import { createRun, finishRun, readCandidateSummary } from '../engines'
 import { DEFAULT_MAX_COMMITS, DEFAULT_MAX_SITES_PER_PATTERN, runPatchMining } from '../patchmine'
 import { openStateDatabase } from '../state/db'
+import {
+  DB_OPTION_DESCRIPTION,
+  defaultDbPath,
+  defaultTargetPath,
+  requireTargetOption,
+  TARGET_OPTION_DESCRIPTION,
+} from './defaults'
 import { parseBackendName } from './format'
 import { describeMissingTarget, resolveCommandTarget } from './target'
 
 import type { Command } from 'commander'
 
-const DEFAULT_DB_PATH = path.resolve('.windbreak', 'state.db')
-
 interface PatchMineCommandOptions {
-  target: string
+  target?: string
   commit?: string
   db?: string
   config?: string
@@ -46,9 +49,9 @@ export const registerPatchMineCommand = (program: Command): void => {
     .description(
       "Mine the target's own fix history for reusable shapes and sweep for sibling sites (spec §4.4.1)",
     )
-    .requiredOption('--target <path>', 'path to the target checkout')
+    .option('--target <path>', TARGET_OPTION_DESCRIPTION, defaultTargetPath())
     .option('--commit <sha>', 'commit to pin; defaults to the checkout HEAD')
-    .option('--db <path>', 'state database path', DEFAULT_DB_PATH)
+    .option('--db <path>', DB_OPTION_DESCRIPTION)
     .option('--config <path>', 'config file with budget settings')
     .option('--backend <name>', 'require a specific sandbox backend')
     .option('--budget-seconds <n>', 'override the total target budget')
@@ -61,7 +64,10 @@ export const registerPatchMineCommand = (program: Command): void => {
     .option('--yes', 'non-interactive: budget overruns degrade rather than prompt')
     .option('--json', 'emit machine-readable output')
     .action(async (options: PatchMineCommandOptions) => {
-      const loaded = loadConfig(options.config)
+      const targetPath = requireTargetOption(options.target)
+      if (targetPath === null) return
+
+      const loaded = loadEffectiveConfig(options.config)
       const { config } = loaded
 
       if (loaded.violations.length > 0) {
@@ -73,13 +79,13 @@ export const registerPatchMineCommand = (program: Command): void => {
         return
       }
 
-      const databasePath = options.db ?? DEFAULT_DB_PATH
+      const databasePath = options.db ?? defaultDbPath()
       const database = openStateDatabase(databasePath)
       const preferredBackend = parseBackendName(options.backend)
 
       try {
         const target = resolveCommandTarget({
-          target: options.target,
+          target: targetPath,
           ...(options.commit ? { commit: options.commit } : {}),
           db: database,
         })

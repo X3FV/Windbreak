@@ -1,8 +1,7 @@
 import { listTables, openStateDatabase, SCHEMA_VERSION } from '../state/db'
+import { defaultDbPath } from './defaults'
 
 import type { Command } from 'commander'
-
-const DEFAULT_DB_PATH = '.windbreak/state.db'
 
 interface DbInitOptions {
   path?: string
@@ -15,9 +14,13 @@ export const registerDbCommand = (program: Command): void => {
 
   db.command('init')
     .description('Create the state database and schema if they do not exist')
-    .option('--path <path>', 'database path', DEFAULT_DB_PATH)
+    .option(
+      '--path <path>',
+      'database path; defaults to the configured one, else <cwd>/.windbreak/state.db',
+      defaultDbPath(),
+    )
     .action((options: DbInitOptions) => {
-      const databasePath = options.path ?? DEFAULT_DB_PATH
+      const databasePath = options.path ?? defaultDbPath()
       const database = openStateDatabase(databasePath)
 
       try {

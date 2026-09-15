@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+#
+# `windbreak-tui` — open the adjudication screen from *this checkout*, without a build.
+#
+#   scripts/windbreak-tui
+#   scripts/windbreak-tui --run <run-id> --all
+#   WINDBREAK_TARGET=/some/other/repo scripts/windbreak-tui
+#
+# Why this exists next to two other entry points. `scripts/windbreak` forwards to
+# `freebuff windbreak`, which is right when the freebuff on PATH carries the screen — the
+# shipped binary. That assumption is wrong in this repository, twice over: freebuff's
+# release line here (`0.0.174`) has no `windbreak` subcommand at all, and while the screen
+# is being edited the installed binary is the *old* screen by definition. So this runs the
+# checkout through `bun`, the way `cli`'s own `dev` script does, and the installed binary is
+# never consulted.
+#
+# The target is the same one `windbreak-cli` uses — `$WINDBREAK_TARGET`, else the checkout
+# this package belongs to — and for the same reason: the screen resolves its repository by
+# walking up to `.git` from the working directory, so running *from* the target is what makes
+# it open on that checkout rather than on whatever directory you happened to type from. An
+# explicit `--db` or `--cwd` you pass still wins, because the screen parses those itself.
+#
+# Install — a symlink, not a copy:
+#   ln -sf "$PWD/scripts/windbreak-tui" ~/.local/bin/windbreak-tui
+#
+# A copy needs `WINDBREAK_ROOT=<checkout>` exported, for the same reason as `windbreak-cli`:
+# a copy has no path back to the checkout, and this launcher runs that checkout's source.
+#
+# Name note: `scripts/windbreak` is the same screen dispatched through an installed
+# freebuff, and `scripts/windbreak-cli` is the standalone scan surface (`src/index.ts`).
+# Neither bare `windbreak` alias is installed by the README: the two names say which
+# program you are getting.
+set -euo pipefail
+
+# Where this script really lives, following symlinks — `dirname "${BASH_SOURCE[0]}"` alone
+# would report `~/.local/bin` for an installed link.
+script_path="${BASH_SOURCE[0]}"
+while [ -L "$script_path" ]; do
+  link_target="$(readlink "$script_path")"
+  case "$link_target" in
+    /*) script_path="$link_target" ;;
+    *) script_path="$(dirname "$script_path")/$link_target" ;;
+  esac
+done
+script_dir="$(cd "$(dirname "$script_path")" && pwd)"
+
+if [ -n "${WINDBREAK_ROOT:-}" ]; then
+  repo_root="$(cd "$WINDBREAK_ROOT" && pwd)"
+elif [ -f "$script_dir/../../cli/src/entry.ts" ]; then
+  repo_root="$(cd "$script_dir/../.." && pwd)"
+else
+  printf 'windbreak-tui: cannot tell which checkout to run.\n' >&2
+  printf 'windbreak-tui: set WINDBREAK_ROOT to the repository that holds cli/.\n' >&2
+  exit 1
+fi
+
+cli_entry="$repo_root/cli/src/entry.ts"
+if [ ! -f "$cli_entry" ]; then
+  printf 'windbreak-tui: no CLI source at %s.\n' "$cli_entry" >&2
+  printf 'windbreak-tui: this launcher runs the screen from a checkout; for an installed\n' >&2
+  printf 'windbreak-tui: freebuff use `freebuff windbreak`, or `scripts/windbreak`.\n' >&2
+  exit 1
+fi
+
+target="${WINDBREAK_TARGET:-$repo_root}"
+if [ ! -d "$target" ]; then
+  printf 'windbreak-tui: target directory does not exist: %s\n' "$target" >&2
+  printf 'windbreak-tui: set WINDBREAK_TARGET to the checkout you want to open.\n' >&2
+  exit 1
+fi
+
+# bun, in bun's own order: `$BUN`, then PATH, then the directory the official installer
+# writes to. The last lookup is what lets this run from a shell whose PATH was set *before*
+# bun was installed — an open terminal never re-reads `~/.bashrc`, and "this shell cannot
+# find bun" is not the same finding as "this machine has no bun".
+bun_bin=""
+for candidate in "${BUN:-}" bun "${BUN_INSTALL:-$HOME/.bun}/bin/bun"; do
+  if [ -n "$candidate" ] && command -v "$candidate" >/dev/null 2>&1; then
+    bun_bin="$candidate"
+    break
+  fi
+done
+
+if [ -z "$bun_bin" ]; then
+  printf 'windbreak-tui: no bun on PATH, in $BUN, or at %s.\n' "${BUN_INSTALL:-$HOME/.bun}/bin/bun" >&2
+  printf 'windbreak-tui: windbreak needs bun 1.3.x. `curl -fsSL https://bun.sh/install | bash -s bun-v1.3.14`\n' >&2
+  printf 'windbreak-tui: installs it; a shell already open will not see it until it is restarted,\n' >&2
+  printf 'windbreak-tui: or set BUN=/path/to/bun if it is installed somewhere else.\n' >&2
+  exit 127
+fi
+
+# The CLI imports `agents/bundled-agents.generated.ts`, which is generated and gitignored —
+# so a fresh clone has none, and the import fails before the screen exists. `cli`'s own
+# `dev` script generates it unconditionally; only do it when it is missing, so a normal
+# start is not gated on a 650 KB regeneration.
+generated="$repo_root/cli/src/agents/bundled-agents.generated.ts"
+if [ ! -f "$generated" ]; then
+  printf 'windbreak-tui: generating %s (first run)\n' "$generated" >&2
+  (cd "$repo_root/cli" && "$bun_bin" run prebuild:agents)
+fi
+
+cd "$target"
+
+# On stderr, so a screen that draws to stdout is the only thing there.
+printf 'windbreak-tui: target %s\n' "$target" >&2
+
+# `--cwd` is what tells the screen which repository it is about, and it is passed explicitly
+# rather than left to the shell's directory so the two cannot drift.
+exec "$bun_bin" "$cli_entry" --cwd "$target" windbreak "$@"

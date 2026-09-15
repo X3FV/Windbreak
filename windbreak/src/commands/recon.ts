@@ -1,15 +1,18 @@
-import path from 'path'
-
 import { runRecon } from '../recon'
 import { openStateDatabase } from '../state/db'
+import {
+  DB_OPTION_DESCRIPTION,
+  defaultDbPath,
+  defaultTargetPath,
+  requireTargetOption,
+  TARGET_OPTION_DESCRIPTION,
+} from './defaults'
 import { parseBackendName } from './format'
 
 import type { Command } from 'commander'
 
-const DEFAULT_DB_PATH = path.resolve('.windbreak', 'state.db')
-
 interface ReconCommandOptions {
-  target: string
+  target?: string
   commit?: string
   scratch?: string
   build?: boolean
@@ -30,21 +33,24 @@ export const registerReconCommand = (program: Command): void => {
     .description(
       'Inventory a target, pin its revision, build it in the sandbox, and index its symbols',
     )
-    .requiredOption('--target <path>', 'path to the target checkout')
+    .option('--target <path>', TARGET_OPTION_DESCRIPTION, defaultTargetPath())
     .option('--commit <sha>', 'expected commit, recorded and checked against HEAD')
     .option('--scratch <path>', 'per-run scratch directory')
     .option('--no-build', 'skip the sandboxed build step')
-    .option('--db <path>', 'state database path', DEFAULT_DB_PATH)
+    .option('--db <path>', DB_OPTION_DESCRIPTION)
     .option('--backend <name>', 'require a specific sandbox backend')
     .option('--json', 'emit machine-readable output')
     .action(async (options: ReconCommandOptions) => {
+      const targetPath = requireTargetOption(options.target)
+      if (targetPath === null) return
+
       const preferredBackend = parseBackendName(options.backend)
 
-      const database = openStateDatabase(options.db ?? DEFAULT_DB_PATH)
+      const database = openStateDatabase(options.db ?? defaultDbPath())
 
       try {
         const result = await runRecon({
-          target: options.target,
+          target: targetPath,
           ...(options.commit ? { commit: options.commit } : {}),
           ...(options.scratch ? { scratchDir: options.scratch } : {}),
           build: options.build !== false,

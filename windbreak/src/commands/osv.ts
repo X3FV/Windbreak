@@ -1,17 +1,20 @@
-import path from 'path'
-
 import { correlateWithOsv } from '../osv'
 import { collectInventory } from '../recon/inventory'
 import { findManifests } from '../recon/deps'
 import { openStateDatabase } from '../state/db'
+import {
+  DB_OPTION_DESCRIPTION,
+  defaultDbPath,
+  defaultTargetPath,
+  requireTargetOption,
+  TARGET_OPTION_DESCRIPTION,
+} from './defaults'
 import { describeMissingTarget, resolveCommandTarget } from './target'
 
 import type { Command } from 'commander'
 
-const DEFAULT_DB_PATH = path.resolve('.windbreak', 'state.db')
-
 interface OsvCommandOptions {
-  target: string
+  target?: string
   commit?: string
   db?: string
   enrich?: boolean
@@ -30,21 +33,24 @@ export const registerOsvCommand = (program: Command): void => {
     .description(
       'Correlate a target\'s dependency manifests and commit against OSV.dev',
     )
-    .requiredOption('--target <path>', 'path to the target checkout')
+    .option('--target <path>', TARGET_OPTION_DESCRIPTION, defaultTargetPath())
     .option('--commit <sha>', 'commit to query; defaults to the checkout HEAD')
-    .option('--db <path>', 'state database path', DEFAULT_DB_PATH)
+    .option('--db <path>', DB_OPTION_DESCRIPTION)
     .option(
       '--no-enrich',
       'skip fetching full advisory records (one querybatch request only)',
     )
     .option('--json', 'emit machine-readable output')
     .action(async (options: OsvCommandOptions) => {
-      const databasePath = options.db ?? DEFAULT_DB_PATH
+      const targetPath = requireTargetOption(options.target)
+      if (targetPath === null) return
+
+      const databasePath = options.db ?? defaultDbPath()
       const database = openStateDatabase(databasePath)
 
       try {
         const target = resolveCommandTarget({
-          target: options.target,
+          target: targetPath,
           ...(options.commit ? { commit: options.commit } : {}),
           db: database,
         })

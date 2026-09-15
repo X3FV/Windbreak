@@ -2,7 +2,6 @@ import fs from 'fs'
 import path from 'path'
 
 import { MissingCredentialsError, SdkEnvironmentError, createWindbreakClient } from '../client'
-import { loadConfig } from '../config'
 import {
   DEFAULT_MIN_RECALL,
   loadEvalInput,
@@ -14,10 +13,9 @@ import { renderEvalReport } from '../eval/report-text'
 import { renderTier1Report } from '../eval/tier1-text'
 import { createSdkModelInvoker } from '../pipeline'
 import { openStateDatabase } from '../state/db'
+import { DB_OPTION_DESCRIPTION, defaultDbPath, effectiveConfig } from './defaults'
 
 import type { Command } from 'commander'
-
-const DEFAULT_DB_PATH = path.resolve('.windbreak', 'state.db')
 
 interface EvalCommandOptions {
   db?: string
@@ -51,7 +49,7 @@ export const registerEvalCommand = (program: Command): void => {
     .command('eval')
     .description('Score a corpus: repo-snapshot fixtures (§11.2) or function pairs (§11.1)')
     .argument('<corpus>', 'path to a fixture list or a pair set (JSON)')
-    .option('--db <path>', 'state database path', DEFAULT_DB_PATH)
+    .option('--db <path>', DB_OPTION_DESCRIPTION)
     .option('--run <id>', 'score only this run (fixture lists only)')
     .option(
       '--min-recall <n>',
@@ -60,7 +58,7 @@ export const registerEvalCommand = (program: Command): void => {
     .option('--no-cache', 'ignore the verdict cache (pair sets only)')
     .option('--json', 'emit machine-readable output')
     .action(async (corpusPath: string, options: EvalCommandOptions & { cache?: boolean }) => {
-      const databasePath = options.db ?? DEFAULT_DB_PATH
+      const databasePath = options.db ?? defaultDbPath()
       const resolved = path.resolve(databasePath)
 
       if (resolved !== ':memory:' && !fs.existsSync(resolved)) {
@@ -165,7 +163,7 @@ const runPairTier = async (input: {
     return
   }
 
-  const loaded = loadConfig()
+  const loaded = effectiveConfig()
   if (loaded.violations.length > 0) {
     console.error('Configuration is invalid; refusing to run:')
     for (const violation of loaded.violations) {
