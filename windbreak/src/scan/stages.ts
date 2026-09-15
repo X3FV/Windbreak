@@ -287,6 +287,12 @@ export const deriveCounts = (records: readonly StageRecord[]): ScanCounts => {
         counts.toctouFsm = at.toctouFsm ?? 0
         counts.toctouAtomicity = at.toctouAtomicity ?? 0
         counts.toctouSignal = at.toctouSignal ?? 0
+        counts.toctouInterproc = at.toctouInterproc ?? 0
+        counts.callEdges = at.callEdges ?? 0
+        counts.callSitesSeen = at.callSitesSeen ?? 0
+        counts.callSitesUnattributed = at.callSitesUnattributed ?? 0
+        counts.callSitesAmbiguous = at.callSitesAmbiguous ?? 0
+        counts.callerGuardedSites = at.callerGuardedSites ?? 0
         counts.signalHandlers = at.signalHandlers ?? 0
         // Four producers feed the same candidate set: the engines, §4.4.1's
         // patch-mined sweep, §4.4.3's check-to-use stage, and §4.8's library replay.

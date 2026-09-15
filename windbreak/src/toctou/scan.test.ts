@@ -4,6 +4,7 @@ import path from 'path'
 import { afterEach, describe, expect, test } from 'bun:test'
 
 import { seedState } from '../pipeline/test-support'
+import { buildCallGraph } from './callgraph'
 import { atomicityRuleId } from './rules'
 import { sweepFunctions } from './scan'
 
@@ -190,9 +191,9 @@ describe('sweepFunctions', () => {
     })
 
     expect(result.sites).toEqual([])
-    // The four FSMs, this one rule, and the four signal shapes — each accounted for
-    // separately, including the producers that found nothing.
-    expect(result.outcomes).toHaveLength(9)
+    // The four FSMs, this one rule, the four signal shapes and the interprocedural
+    // producer — each accounted for separately, including the ones that found nothing.
+    expect(result.outcomes).toHaveLength(10)
     const ruleOutcome = result.outcomes.find(
       (outcome) => outcome.producer === `rule:${rule().id}`,
     )!
@@ -296,13 +297,15 @@ describe('sweepFunctions', () => {
 
     expect(result.sites).toEqual([])
     // A restricted FSM set narrows which check-to-use machines run; it does not hide
-    // the producers that were not asked for, and it does not disable the signal one.
+    // the producers that were not asked for, and it does not disable the signal one or
+    // the interprocedural one.
     expect(result.outcomes.map((outcome) => outcome.producer)).toEqual([
       'fsm:double-fetch',
       'signal:unsafe-call',
       'signal:reentrancy-window',
       'signal:shared-state',
       'signal:non-local-jump',
+      'interproc',
     ])
   })
 
@@ -571,5 +574,271 @@ describe('sweepFunctions \u2014 signal handlers', () => {
 
     expect(result.sites).toHaveLength(1)
     expect(result.coverage.noDetectorTables).toBe(0)
+  })
+})
+
+describe('the caller-lock annotation', () => {
+  const UNLOCKED_HELPER = 'int read_count(struct s *s) {\n  return s->count;\n}\n'
+
+  const LOCKED_CALLER =
+    'int caller(struct s *s) {\n' +
+    '  mutex_lock(&s->mu);\n' +
+    '  int value = read_count(s);\n' +
+    '  mutex_unlock(&s->mu);\n' +
+    '  return value;\n' +
+    '}\n'
+
+  const UNLOCKED_CALLER = 'int caller(struct s *s) {\n  return read_count(s);\n}\n'
+
+  const HELPER = { filePath: 'src/helper.c', name: 'read_count', startLine: 1, endLine: 3 }
+  const LOCKED_CALLER_SYMBOL = {
+    filePath: 'src/main.c',
+    name: 'caller',
+    startLine: 1,
+    endLine: 5,
+  }
+  const UNLOCKED_CALLER_SYMBOL = {
+    filePath: 'src/main.c',
+    name: 'caller',
+    startLine: 1,
+    endLine: 3,
+  }
+
+  const graphFor = (references: Array<{ filePath: string; name: string; line: number }>) =>
+    buildCallGraph({
+      definitions: [HELPER, LOCKED_CALLER_SYMBOL, UNLOCKED_CALLER_SYMBOL],
+      references,
+    })
+
+  const atomicityOf = (site: { kind: string } | undefined) => {
+    if (site?.kind !== 'atomicity') throw new Error('expected an atomicity site')
+    return site as { kind: 'atomicity'; callerLock: unknown; evidence: string }
+  }
+
+  test('a helper reached only under the lock is annotated, never suppressed', () => {
+    const targetRoot = checkout({
+      'src/helper.c': UNLOCKED_HELPER,
+      'src/main.c': LOCKED_CALLER,
+    })
+    seeded = seedState({ symbols: [HELPER, LOCKED_CALLER_SYMBOL] })
+
+    const result = sweepFunctions({
+      db: seeded.db,
+      targetId: seeded.targetId,
+      targetRoot,
+      rules: [rule()],
+      callGraph: graphFor([{ filePath: 'src/main.c', name: 'read_count', line: 3 }]),
+    })
+
+    // Option A in one assertion: the finding survives, carrying the caller evidence.
+    expect(result.sites).toHaveLength(1)
+    const site = atomicityOf(result.sites[0])
+    expect(site.callerLock).toEqual({
+      callers: 1,
+      lockedCallers: 1,
+      complete: true,
+      allCallersLocked: true,
+    })
+    expect(site.evidence).toContain('every recorded caller holds `s->mu` across the call')
+    expect(result.coverage.callerGuardedSites).toBe(1)
+  })
+
+  test('a caller that does not hold the lock is reported as such', () => {
+    const targetRoot = checkout({
+      'src/helper.c': UNLOCKED_HELPER,
+      'src/main.c': UNLOCKED_CALLER,
+    })
+    seeded = seedState({ symbols: [HELPER, UNLOCKED_CALLER_SYMBOL] })
+
+    const result = sweepFunctions({
+      db: seeded.db,
+      targetId: seeded.targetId,
+      targetRoot,
+      rules: [rule()],
+      callGraph: graphFor([{ filePath: 'src/main.c', name: 'read_count', line: 2 }]),
+    })
+
+    const site = atomicityOf(result.sites[0])
+    expect(site.callerLock).toMatchObject({ lockedCallers: 0, allCallersLocked: false })
+    expect(site.evidence).toContain('no recorded caller holds `s->mu` across the call')
+    expect(result.coverage.callerGuardedSites).toBe(0)
+  })
+
+  test('a call site the graph cannot place makes the caller set partial, and says so', () => {
+    const targetRoot = checkout({
+      'src/helper.c': UNLOCKED_HELPER,
+      'src/main.c': LOCKED_CALLER,
+    })
+    seeded = seedState({ symbols: [HELPER, LOCKED_CALLER_SYMBOL] })
+
+    const result = sweepFunctions({
+      db: seeded.db,
+      targetId: seeded.targetId,
+      targetRoot,
+      rules: [rule()],
+      // A second call to the same name from a line no function covers: it might be a
+      // caller the graph cannot see, so the count below it is a lower bound.
+      callGraph: graphFor([
+        { filePath: 'src/main.c', name: 'read_count', line: 3 },
+        { filePath: 'src/other.c', name: 'read_count', line: 99 },
+      ]),
+    })
+
+    const site = atomicityOf(result.sites[0])
+    expect(site.callerLock).toMatchObject({ complete: false, allCallersLocked: false })
+    expect(site.evidence).toContain('the caller set is partial')
+    expect(result.coverage.callerGuardedSites).toBe(0)
+  })
+
+  test('turning the pass off leaves the annotation absent rather than empty', () => {
+    const targetRoot = checkout({ 'src/helper.c': UNLOCKED_HELPER })
+    seeded = seedState({ symbols: [HELPER] })
+
+    const result = sweepFunctions({
+      db: seeded.db,
+      targetId: seeded.targetId,
+      targetRoot,
+      rules: [rule()],
+      interprocedural: false,
+    })
+
+    const site = atomicityOf(result.sites[0])
+    expect(site.callerLock).toBeNull()
+    expect(site.evidence).not.toContain('recorded caller')
+    expect(result.coverage.callerGuardedSites).toBe(0)
+  })
+})
+
+describe('the cross-function check-to-use producer', () => {
+  const CALLER =
+    'int load(const char *cfg) {\n' +
+    '  if (access(cfg, R_OK) != 0) return -1;\n' +
+    '  return load_config(cfg);\n' +
+    '}\n'
+
+  const CALLEE =
+    'int load_config(const char *path) {\n' +
+    '  FILE *f = fopen(path, "r");\n' +
+    '  return f != NULL;\n' +
+    '}\n'
+
+  const LOAD = { filePath: 'src/load.c', name: 'load', startLine: 1, endLine: 4 }
+  const LOAD_CONFIG = {
+    filePath: 'src/config.c',
+    name: 'load_config',
+    startLine: 1,
+    endLine: 4,
+  }
+
+  const sweepAcrossTheCall = () => {
+    const targetRoot = checkout({ 'src/load.c': CALLER, 'src/config.c': CALLEE })
+    seeded = seedState({ symbols: [LOAD, LOAD_CONFIG] })
+
+    return sweepFunctions({
+      db: seeded.db,
+      targetId: seeded.targetId,
+      targetRoot,
+      rules: [],
+      callGraph: buildCallGraph({
+        definitions: [LOAD, LOAD_CONFIG],
+        references: [{ filePath: 'src/load.c', name: 'load_config', line: 3 }],
+      }),
+    })
+  }
+
+  test('a check in one function and a re-resolution in another is one site', () => {
+    const result = sweepAcrossTheCall()
+
+    expect(result.sites).toHaveLength(1)
+    const site = result.sites[0]!
+    expect(site.kind).toBe('interproc')
+    if (site.kind !== 'interproc') throw new Error('expected an interproc site')
+
+    // The caller's lines are file lines, the callee's is already file-absolute.
+    expect(site.checkLine).toBe(2)
+    expect(site.matchLine).toBe(3)
+    expect(site.resource).toBe('cfg')
+    expect(site.other).toEqual({
+      filePath: 'src/config.c',
+      functionName: 'load_config',
+      fileLine: 2,
+      callee: 'fopen',
+    })
+  })
+
+  test('the evidence names both functions and both files', () => {
+    const result = sweepAcrossTheCall()
+    const site = result.sites[0]!
+
+    expect(site.evidence).toContain('`cfg` is checked at line 2')
+    expect(site.evidence).toContain('passed to `load_config` at line 3')
+    expect(site.evidence).toContain('`fopen` at src/config.c:2')
+  })
+
+  test('the producer is accounted for separately and can be declined', () => {
+    const ran = sweepAcrossTheCall()
+    expect(ran.outcomes.find((outcome) => outcome.producer === 'interproc')?.sites).toBe(1)
+
+    const targetRoot = checkout({ 'src/load.c': CALLER, 'src/config.c': CALLEE })
+    seeded = seedState({ symbols: [LOAD, LOAD_CONFIG] })
+    const declined = sweepFunctions({
+      db: seeded.db,
+      targetId: seeded.targetId,
+      targetRoot,
+      rules: [],
+      interprocedural: false,
+    })
+
+    expect(declined.sites).toEqual([])
+    // Omitted rather than listed at zero: it did not run.
+    expect(declined.outcomes.some((outcome) => outcome.producer === 'interproc')).toBe(false)
+  })
+})
+
+describe('the call graph denominator', () => {
+  const PLAIN = 'int read_count(struct s *s) {\n  return s->count;\n}\n'
+  const SYMBOL = { filePath: 'src/plain.c', name: 'read_count', startLine: 1, endLine: 3 }
+
+  const sweepWith = (callGraph: ReturnType<typeof buildCallGraph>) => {
+    const targetRoot = checkout({ 'src/plain.c': PLAIN })
+    seeded = seedState({ symbols: [SYMBOL] })
+    return sweepFunctions({
+      db: seeded.db,
+      targetId: seeded.targetId,
+      targetRoot,
+      rules: [rule()],
+      callGraph,
+    })
+  }
+
+  test('call sites with no resolved edges warn rather than reading as clean', () => {
+    const result = sweepWith(
+      // One call site whose callee has no definition: an empty graph, not a clean tree.
+      buildCallGraph({ definitions: [SYMBOL], references: [{ filePath: 'src/plain.c', name: 'absent', line: 2 }] }),
+    )
+
+    expect(result.coverage.callEdges).toBe(0)
+    expect(result.coverage.callSitesSeen).toBe(1)
+    expect(
+      result.warnings.some((warning) => warning.includes('an empty graph, not a clean tree')),
+    ).toBe(true)
+  })
+
+  test('a model with no call sites at all is a different statement and is not warned about', () => {
+    const result = sweepWith(buildCallGraph({ definitions: [], references: [] }))
+
+    expect(result.coverage.callSitesSeen).toBe(0)
+    expect(result.warnings.some((warning) => warning.includes('empty graph'))).toBe(false)
+  })
+
+  test('the graph’s own numbers are carried on the coverage, not just in the log', () => {
+    const result = sweepWith(
+      buildCallGraph({ definitions: [SYMBOL], references: [{ filePath: 'src/plain.c', name: 'read_count', line: 2 }] }),
+    )
+
+    expect(result.coverage.callEdges).toBe(1)
+    expect(result.coverage.callSitesSeen).toBe(1)
+    expect(result.coverage.callSitesUnattributed).toBe(0)
+    expect(result.coverage.callSitesAmbiguous).toBe(0)
   })
 })

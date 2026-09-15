@@ -719,6 +719,7 @@ export const runScan = async (options: ScanOptions): Promise<ScanResult> => {
         const toctouFsm = toctou.sites.filter((site) => site.kind === 'fsm').length
         const toctouAtomicity = toctou.sites.filter((site) => site.kind === 'atomicity').length
         const toctouSignal = toctou.sites.filter((site) => site.kind === 'signal').length
+        const toctouInterproc = toctou.sites.filter((site) => site.kind === 'interproc').length
 
         return {
           status:
@@ -733,6 +734,7 @@ export const runScan = async (options: ScanOptions): Promise<ScanResult> => {
             `${patchMined.candidates.length} patch-mined from ${patchMined.patterns.length} ` +
             `pattern(s), ${toctou.candidates.length} toctou from ` +
             `${toctou.rules.length} rule(s) + ${toctouFsm} fsm site(s) + ` +
+            `${toctouInterproc} interprocedural site(s) + ` +
             `${toctouSignal} signal site(s) over ${toctou.coverage.signalHandlers} handler(s), ` +
             `${replayPersisted.inserted} variant(s) from ` +
             `${patternsRan}/${replay.checkersConsidered} pattern(s)`,
@@ -745,7 +747,14 @@ export const runScan = async (options: ScanOptions): Promise<ScanResult> => {
             toctouFsm,
             toctouAtomicity,
             toctouSignal,
+            toctouInterproc,
             signalHandlers: toctou.coverage.signalHandlers,
+            // The call graph's own denominator, carried beside the counts it qualifies.
+            callEdges: toctou.coverage.callEdges,
+            callSitesSeen: toctou.coverage.callSitesSeen,
+            callSitesUnattributed: toctou.coverage.callSitesUnattributed,
+            callSitesAmbiguous: toctou.coverage.callSitesAmbiguous,
+            callerGuardedSites: toctou.coverage.callerGuardedSites,
             variants: replayPersisted.inserted,
             patternsConsidered: replay.checkersConsidered,
             patternsRan,

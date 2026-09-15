@@ -36,6 +36,7 @@
 
 import { normalizeExpression, stripAddress } from './alias'
 import { callSites } from './events'
+import { buildDefinitionIndex, resolveName } from './resolver'
 
 import type { SignalHandler } from './types'
 
@@ -413,18 +414,18 @@ export const registrationsIn = (candidate: HandlerCandidate): Registration[] => 
 /**
  * Resolve every registration against the indexed functions.
  *
- * Two passes over the same input rather than one, because resolution needs every
- * candidate present before the first name can be placed.
+ * The policy itself — same-file wins, a single definition resolves, a genuine
+ * ambiguity is dropped — lives in `resolver.ts`, so a signal registration and a
+ * callee name resolve the same way rather than by two copies of the same rule. This
+ * function supplies only the vocabulary: which name, which file it was registered
+ * in, and the message a dropped resolution produces.
  */
 export const findSignalHandlers = (
   candidates: readonly HandlerCandidate[],
 ): SignalHandlerIndex => {
-  const filesByName = new Map<string, Set<string>>()
-  for (const candidate of candidates) {
-    const files = filesByName.get(candidate.name) ?? new Set<string>()
-    files.add(candidate.filePath)
-    filesByName.set(candidate.name, files)
-  }
+  const index = buildDefinitionIndex(
+    candidates.map((candidate) => ({ name: candidate.name, filePath: candidate.filePath })),
+  )
 
   const handlers = new Map<string, SignalHandler>()
   const unresolved: string[] = []
@@ -432,27 +433,20 @@ export const findSignalHandlers = (
 
   for (const candidate of candidates) {
     for (const registration of registrationsIn(candidate)) {
-      const files = filesByName.get(registration.handler)
-      if (files === undefined || files.size === 0) {
+      const resolution = resolveName(index, registration.handler, registration.filePath)
+      if (resolution.kind === 'unresolved') {
         unresolved.push(`${registration.handler} (registered in ${registration.filePath})`)
         continue
       }
-
-      let file: string
-      if (files.has(registration.filePath)) {
-        // Same-file wins, which is what makes a `static` handler resolvable when
-        // another translation unit happens to use the same name.
-        file = registration.filePath
-      } else if (files.size === 1) {
-        file = [...files][0]!
-      } else {
+      if (resolution.kind === 'ambiguous') {
         ambiguous.push(
           `${registration.handler} (registered in ${registration.filePath}, defined in ` +
-            `${files.size} files)`,
+            `${resolution.fileCount} files)`,
         )
         continue
       }
 
+      const file = resolution.filePath
       const key = `${file}\u0000${registration.handler}`
       const existing = handlers.get(key)
 

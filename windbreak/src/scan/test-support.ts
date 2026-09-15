@@ -278,6 +278,7 @@ export const toctouStub = (
       checkLine: null,
       resource: `s->field${index}`,
       lock: 's->mu',
+      callerLock: null,
       evidence: '`s->field0` is accessed at line 2 with `s->mu` never held in this function',
     })),
     ...Array.from({ length: input.signalSites ?? 0 }, (_, index) => ({

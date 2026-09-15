@@ -8,7 +8,11 @@ export { defaultResolveInvoker, runScan } from './run'
  */
 export { launchScan } from './launch'
 export type { LaunchScanOptions, LaunchScanOutcome } from './launch'
-export { formatLanguageCoverage, readLanguageCoverage } from './coverage'
+export {
+  formatInterproceduralCoverage,
+  formatLanguageCoverage,
+  readLanguageCoverage,
+} from './coverage'
 export {
   carriedElapsedSeconds,
   deriveCounts,

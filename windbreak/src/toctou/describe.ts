@@ -25,8 +25,10 @@
 
 import { FSM_DESCRIPTIONS, SIGNAL_SHAPE_DESCRIPTIONS } from './types'
 
+import type { InterprocFinding } from './interproc'
 import type {
   AtomicityRule,
+  CallerLockContext,
   RuleViolation,
   SignalFinding,
   ToctouFinding,
@@ -98,10 +100,51 @@ export const describeFsmFinding = (
  * arguable, and a reviewer who disagrees with the finding needs that SHA to argue
  * with.
  */
+/**
+ * The caller-lock clause, or nothing when there is nothing to say.
+ *
+ * This is the interprocedural half of the sentence, and it is deliberately phrased as
+ * evidence rather than as a verdict. "Every recorded caller holds `g.mu` across the
+ * call" tells a reviewer where to look; it does not say the finding is benign, because
+ * the call graph cannot see a function whose address is taken and so cannot prove it.
+ * The word *recorded* is doing real work in both the complete and the partial case.
+ */
+const callerClause = (context: CallerLockContext | null, lock: string): string => {
+  if (context === null) return ''
+
+  if (context.callers === 0) {
+    return '; the call graph records no call to this function, so it may be an entry point'
+  }
+
+  const base = context.allCallersLocked
+    ? `; every recorded caller holds ${lock} across the call, so this may be a helper reached only locked`
+    : context.lockedCallers === 0
+      ? `; no recorded caller holds ${lock} across the call`
+      : `; ${context.lockedCallers} of ${context.callers} recorded callers hold ${lock} across the call`
+
+  return context.complete
+    ? base
+    : `${base}, and the caller set is partial, so a caller not in the graph may differ`
+}
+
+/**
+ * The sentence for an atomicity violation, with its rule's provenance.
+ *
+ * The mined rule and the patch it came from are part of the sentence rather than
+ * left to the report, because the rule is the *premise* of the claim: "this project
+ * decided `g.mu` guards `g.hits`, in commit d2fa956e0a9f" is what makes the finding
+ * arguable, and a reviewer who disagrees with the finding needs that SHA to argue
+ * with.
+ *
+ * `callerLock` adds what the callers do with the rule's lock, when the interprocedural
+ * pass ran. It comes before the provenance parenthesis so the parenthesis still closes
+ * the sentence.
+ */
 export const describeViolation = (
   violation: RuleViolation,
   rule: AtomicityRule,
   toFileLine: LineTranslator,
+  callerLock: CallerLockContext | null = null,
 ): string => {
   const line = toFileLine(violation.line)
   const resource = tick(violation.resource, 'the resource')
@@ -115,8 +158,9 @@ export const describeViolation = (
     : `with ${lock} never held in this function`
 
   return (
-    `${resource} is accessed at line ${line} ${where} (atomicity rule ` +
-    `${rule.id}, mined from ${rule.originPatchSha.slice(0, 12)} in ${rule.originFile})`
+    `${resource} is accessed at line ${line} ${where}${callerClause(callerLock, lock)} ` +
+    `(atomicity rule ${rule.id}, mined from ${rule.originPatchSha.slice(0, 12)} in ` +
+    `${rule.originFile})`
   )
 }
 
@@ -203,6 +247,34 @@ export const describeSignalFinding = (
 }
 
 /**
+ * The sentence for a check-to-use pair that spans a call.
+ *
+ * Both functions are named, and the far end carries its own file, because that is the
+ * whole content of the claim: the check and the re-resolution are in *different*
+ * places, and a sentence that named only one of them would be describing the
+ * same-function FSM instead. It ends with the same clause `fsm.ts`'s path form uses,
+ * because the defect is the same one — only the distance differs.
+ *
+ * The two ends are translated differently and that is the point: the check and the call
+ * belong to the region being swept, so they go through `toFileLine`; the far end was
+ * translated by the summary that found it and is already a file line.
+ */
+export const describeInterprocFinding = (
+  finding: InterprocFinding,
+  toFileLine: LineTranslator,
+): string => {
+  const resource = tick(finding.resource, 'the path')
+  const other = finding.other
+
+  return (
+    `${resource} is checked at line ${toFileLine(finding.checkLine)} and passed to ` +
+    `\`${other.functionName}\` at line ${toFileLine(finding.callLine)}, which re-resolves ` +
+    `the name with \`${other.callee}\` at ${other.filePath}:${other.fileLine}; the name can ` +
+    'be bound to a different object than the one the check saw'
+  )
+}
+
+/**
  * The candidate message for a site.
  *
  * A site already carries file line numbers and its own sentence, so this only adds
@@ -222,5 +294,9 @@ export const describeSite = (site: ToctouSite): string => {
       )
     case 'atomicity':
       return `Atomicity violation — ${site.evidence}`
+    case 'interproc':
+      // Named as an ordering claim over a *call*, because that is the difference from
+      // the same-function form and the reviewer's next question is "which callee".
+      return `Check-to-use ordering across a call — ${site.evidence}`
   }
 }

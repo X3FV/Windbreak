@@ -127,7 +127,9 @@ describe('runScan', () => {
 
     const staticCore = stageOf(result, 'static-core')
     expect(staticCore.status).toBe('complete')
-    expect(staticCore.detail).toContain('1 toctou from 2 rule(s) + 1 fsm site(s) + 1 signal site(s)')
+    expect(staticCore.detail).toContain(
+      '1 toctou from 2 rule(s) + 1 fsm site(s) + 0 interprocedural site(s) + 1 signal site(s)',
+    )
     expect(staticCore.detail).toContain('over 2 handler(s)')
 
     const stored = db

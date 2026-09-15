@@ -1,26 +1,29 @@
-import path from 'path'
-
 import {
   createBudgetGovernor,
   createInteractiveDecider,
   createNonInteractiveDecider,
   formatSeconds,
 } from '../budget'
-import { loadConfig } from '../config'
+import { loadEffectiveConfig } from '../config'
 import { createRun, finishRun, readCandidateSummary } from '../engines'
 import { DEFAULT_MAX_COMMITS } from '../patchmine'
 import { DEFAULT_MAX_SITES_PER_PRODUCER, SIGNAL_SHAPES, TOCTOU_FSMS, runToctou } from '../toctou'
 import { openStateDatabase } from '../state/db'
+import {
+  DB_OPTION_DESCRIPTION,
+  defaultDbPath,
+  defaultTargetPath,
+  requireTargetOption,
+  TARGET_OPTION_DESCRIPTION,
+} from './defaults'
 import { parseBackendName } from './format'
 import { describeMissingTarget, resolveCommandTarget } from './target'
 
 import type { Command } from 'commander'
 import type { ToctouFsm } from '../toctou'
 
-const DEFAULT_DB_PATH = path.resolve('.windbreak', 'state.db')
-
 interface ToctouCommandOptions {
-  target: string
+  target?: string
   commit?: string
   db?: string
   config?: string
@@ -31,6 +34,7 @@ interface ToctouCommandOptions {
   fsm?: string
   'fixSubjectsOnly'?: boolean
   signal?: boolean
+  interproc?: boolean
   yes?: boolean
   json?: boolean
 }
@@ -76,9 +80,9 @@ export const registerToctouCommand = (program: Command): void => {
       'Mine atomicity rules and validate check-to-use (four FSMs) and signal-handler ' +
         '(CWE-364, four shapes) patterns (spec §4.4.3)',
     )
-    .requiredOption('--target <path>', 'path to the target checkout')
+    .option('--target <path>', TARGET_OPTION_DESCRIPTION, defaultTargetPath())
     .option('--commit <sha>', 'commit to pin; defaults to the checkout HEAD')
-    .option('--db <path>', 'state database path', DEFAULT_DB_PATH)
+    .option('--db <path>', DB_OPTION_DESCRIPTION)
     .option('--config <path>', 'config file with budget settings')
     .option('--backend <name>', 'require a specific sandbox backend')
     .option('--budget-seconds <n>', 'override the total target budget')
@@ -101,10 +105,18 @@ export const registerToctouCommand = (program: Command): void => {
       `skip the CWE-364 producer (${SIGNAL_SHAPES.join(', ')}); it reads every ` +
         'indexed function, which is the most expensive thing this stage does',
     )
+    .option(
+      '--no-interproc',
+      'skip caller-lock annotation and the cross-function check-to-use producer; ' +
+        'it reads every indexed function again to summarize parameters and lock holdings',
+    )
     .option('--yes', 'non-interactive: budget overruns degrade rather than prompt')
     .option('--json', 'emit machine-readable output')
     .action(async (options: ToctouCommandOptions) => {
-      const loaded = loadConfig(options.config)
+      const targetPath = requireTargetOption(options.target)
+      if (targetPath === null) return
+
+      const loaded = loadEffectiveConfig(options.config)
       const { config } = loaded
 
       if (loaded.violations.length > 0) {
@@ -116,13 +128,13 @@ export const registerToctouCommand = (program: Command): void => {
         return
       }
 
-      const databasePath = options.db ?? DEFAULT_DB_PATH
+      const databasePath = options.db ?? defaultDbPath()
       const database = openStateDatabase(databasePath)
       const preferredBackend = parseBackendName(options.backend)
 
       try {
         const target = resolveCommandTarget({
-          target: options.target,
+          target: targetPath,
           ...(options.commit ? { commit: options.commit } : {}),
           db: database,
         })
@@ -180,6 +192,7 @@ export const registerToctouCommand = (program: Command): void => {
               maxSites,
               fsms: fsms ?? [...TOCTOU_FSMS],
               signalHandlers: options.signal !== false,
+              interprocedural: options.interproc !== false,
               fixSubjectsOnly: options['fixSubjectsOnly'] === true,
             },
             budget: { totalSeconds, shares: config.budget.shares },
@@ -206,6 +219,7 @@ export const registerToctouCommand = (program: Command): void => {
           maxCommits,
           maxSitesPerProducer: maxSites,
           signalHandlers: options.signal !== false,
+          interprocedural: options.interproc !== false,
           fixSubjectsOnly: options['fixSubjectsOnly'] === true,
           ...(fsms ? { fsms } : {}),
           ...(preferredBackend ? { preferredBackend } : {}),
@@ -228,6 +242,7 @@ export const registerToctouCommand = (program: Command): void => {
 
         const fsmSites = result.sites.filter((site) => site.kind === 'fsm')
         const atomicitySites = result.sites.filter((site) => site.kind === 'atomicity')
+        const interprocSites = result.sites.filter((site) => site.kind === 'interproc')
         const signalSites = result.sites.filter((site) => site.kind === 'signal')
 
         if (options.json) {
@@ -293,6 +308,17 @@ export const registerToctouCommand = (program: Command): void => {
             `${result.coverage.sharedKeys} shared object(s)` +
             (options.signal === false ? '  (producer disabled)' : ''),
         )
+        // The graph's own denominator, printed even when the pass is off. An empty
+        // cross-function result and an empty call graph produce the same site count,
+        // and this is the line that tells them apart.
+        console.log(
+          `interproc:    ${result.coverage.callEdges} call edge(s) over ` +
+            `${result.coverage.callSitesSeen} call site(s) ` +
+            `(${result.coverage.callSitesUnattributed} unattributed, ` +
+            `${result.coverage.callSitesAmbiguous} ambiguous); ` +
+            `${result.coverage.callerGuardedSites} caller-guarded site(s)` +
+            (options.interproc === false ? '  (pass disabled)' : ''),
+        )
         for (const outcome of result.outcomes) {
           console.log(
             `  ${outcome.producer.padEnd(30)} ${String(outcome.sites).padStart(4)} site(s)` +
@@ -313,6 +339,15 @@ export const registerToctouCommand = (program: Command): void => {
         if (atomicitySites.length > 0) {
           console.log('\natomicity violations:')
           for (const site of atomicitySites) {
+            console.log(
+              `  ${site.filePath}:${site.matchLine}  ${site.functionName}  ${site.evidence}`,
+            )
+          }
+        }
+
+        if (interprocSites.length > 0) {
+          console.log('\ncheck-to-use sites across a call:')
+          for (const site of interprocSites) {
             console.log(
               `  ${site.filePath}:${site.matchLine}  ${site.functionName}  ${site.evidence}`,
             )

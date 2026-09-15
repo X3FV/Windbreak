@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 
-import { formatLanguageCoverage, readLanguageCoverage } from './coverage'
+import {
+  formatInterproceduralCoverage,
+  formatLanguageCoverage,
+  readLanguageCoverage,
+} from './coverage'
 import { SCAN_TARGET_ID, scanDatabase, seedScanTarget } from './test-support'
 
 import type { Database } from 'bun:sqlite'
@@ -237,5 +241,46 @@ describe('formatLanguageCoverage', () => {
         languages: [],
       }),
     ).toBe('language coverage: no indexed callables to sweep')
+  })
+})
+
+describe('formatInterproceduralCoverage', () => {
+  const coverage = (over: Partial<Parameters<typeof formatInterproceduralCoverage>[0]> = {}) => ({
+    callEdges: 12,
+    callSitesSeen: 40,
+    callSitesUnattributed: 2,
+    callSitesAmbiguous: 1,
+    callerGuardedSites: 3,
+    ...over,
+  })
+
+  test('prints the graph and its denominator, because a count of nothing needs both', () => {
+    expect(formatInterproceduralCoverage(coverage())).toBe(
+      'interprocedural: 12 call edge(s) over 40 call site(s) (2 unattributed, 1 ambiguous); ' +
+        '3 caller-guarded site(s)',
+    )
+  })
+
+  test('an empty graph is not printed as a complete and empty one', () => {
+    // The whole reason the line exists: these two results have the same site count.
+    expect(formatInterproceduralCoverage(coverage({ callEdges: 0 }))).toContain(
+      '0 call edge(s) over 40 call site(s)',
+    )
+  })
+
+  test('a program model with no call sites is the model\u2019s fact, not the graph\u2019s', () => {
+    expect(
+      formatInterproceduralCoverage(
+        coverage({ callEdges: 0, callSitesSeen: 0, callSitesUnattributed: 0, callSitesAmbiguous: 0 }),
+      ),
+    ).toBe('interprocedural: no call sites in the program model, so no call graph could be built')
+  })
+
+  test('the two drop reasons are named apart, since their causes differ', () => {
+    const line = formatInterproceduralCoverage(
+      coverage({ callSitesUnattributed: 5, callSitesAmbiguous: 0 }),
+    )
+
+    expect(line).toContain('5 unattributed, 0 ambiguous')
   })
 })

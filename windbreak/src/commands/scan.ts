@@ -1,9 +1,14 @@
-import path from 'path'
-
-import { loadConfig } from '../config'
-import { formatLanguageCoverage, runScan } from '../scan'
+import { loadEffectiveConfig } from '../config'
+import { formatInterproceduralCoverage, formatLanguageCoverage, runScan } from '../scan'
 import { openStateDatabase } from '../state/db'
 import { VERSION } from '../version'
+import {
+  DB_OPTION_DESCRIPTION,
+  defaultDbPath,
+  defaultTargetPath,
+  requireTargetOption,
+  TARGET_OPTION_DESCRIPTION,
+} from './defaults'
 import { parseBackendName } from './format'
 import { describeMissingTarget, resolveCommandTarget } from './target'
 
@@ -12,10 +17,8 @@ import type { ResolvedCommandTarget } from './target'
 import type { Database } from 'bun:sqlite'
 import type { ScanResult } from '../scan'
 
-const DEFAULT_DB_PATH = path.resolve('.windbreak', 'state.db')
-
 interface ScanCommandOptions {
-  target: string
+  target?: string
   commit?: string
   db?: string
   config?: string
@@ -71,6 +74,18 @@ const renderSummary = (result: ScanResult): void => {
   // not be the last word on a repository whose callables the C-shaped tables
   // never reached — that is the failure §18 names for the OSV stage.
   console.log(`\n${formatLanguageCoverage(result.languageCoverage)}`)
+  // The call graph's denominator, for the same reason and with the same pair of
+  // numbers: an interprocedural sweep that reported nothing must not read as a target
+  // with no cross-function check-to-use pairs when the truth is a graph with no edges.
+  console.log(
+    formatInterproceduralCoverage({
+      callEdges: result.counts.callEdges,
+      callSitesSeen: result.counts.callSitesSeen,
+      callSitesUnattributed: result.counts.callSitesUnattributed,
+      callSitesAmbiguous: result.counts.callSitesAmbiguous,
+      callerGuardedSites: result.counts.callerGuardedSites,
+    }),
+  )
 
   if (result.report) {
     console.log('\nreport:')
@@ -102,7 +117,7 @@ const runScanCommand = async (
   database: Database,
   target: ResolvedCommandTarget,
 ): Promise<void> => {
-  const loaded = loadConfig(options.config)
+  const loaded = loadEffectiveConfig(options.config)
   if (loaded.violations.length > 0) {
     console.error('Configuration is invalid; refusing to run:')
     for (const violation of loaded.violations) {
@@ -161,9 +176,9 @@ const runScanCommand = async (
 
 const addScanOptions = (command: Command, options: { resume: boolean }): Command => {
   command
-    .requiredOption('--target <path>', 'path to the target checkout')
+    .option('--target <path>', TARGET_OPTION_DESCRIPTION, defaultTargetPath())
     .option('--commit <sha>', 'commit to pin; defaults to the checkout HEAD')
-    .option('--db <path>', 'state database path', DEFAULT_DB_PATH)
+    .option('--db <path>', DB_OPTION_DESCRIPTION)
     .option('--config <path>', 'config file with model, budget, and engine settings')
     .option('--scratch <path>', 'per-run scratch directory for sandboxed work')
     .option('--out <dir>', 'report output directory')
@@ -198,12 +213,15 @@ export const registerScanCommand = (program: Command): void => {
       ),
     { resume: false },
   ).action(async (options: ScanCommandOptions) => {
-    const databasePath = options.db ?? DEFAULT_DB_PATH
+    const targetPath = requireTargetOption(options.target)
+    if (targetPath === null) return
+
+    const databasePath = options.db ?? defaultDbPath()
     const database = openStateDatabase(databasePath)
 
     try {
       const target = resolveCommandTarget({
-        target: options.target,
+        target: targetPath,
         ...(options.commit ? { commit: options.commit } : {}),
         db: database,
       })
@@ -222,7 +240,10 @@ export const registerScanCommand = (program: Command): void => {
       .description('Continue an interrupted run from its first incomplete stage (spec §7.3)'),
     { resume: true },
   ).action(async (options: ScanCommandOptions) => {
-    const databasePath = options.db ?? DEFAULT_DB_PATH
+    const targetPath = requireTargetOption(options.target)
+    if (targetPath === null) return
+
+    const databasePath = options.db ?? defaultDbPath()
     const database = openStateDatabase(databasePath)
 
     try {
@@ -239,7 +260,7 @@ export const registerScanCommand = (program: Command): void => {
       }
 
       const target = resolveCommandTarget({
-        target: options.target,
+        target: targetPath,
         ...(options.commit ? { commit: options.commit } : {}),
         db: database,
       })

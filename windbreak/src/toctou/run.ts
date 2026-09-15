@@ -77,6 +77,15 @@ export interface ToctouRequest {
   signalHandlers?: boolean
   /** Apply the "fix commit" subject heuristic to the rule mining. Off by default. */
   fixSubjectsOnly?: boolean
+  /**
+   * Run §4.4.3's interprocedural pass: the caller-lock annotation and the
+   * cross-function check-to-use producer. Default true.
+   *
+   * Declinable because it is the expensive half — it reads every indexed function once
+   * more to summarize parameters and lock holdings — and because a target with no lock
+   * rules and no cross-function path handling gains nothing from it.
+   */
+  interprocedural?: boolean
   historyTimeLimitSeconds?: number
   preferredBackend?: SandboxBackendName
 }
@@ -148,6 +157,11 @@ export const producerId = (site: ToctouSite): string => {
       return `atomicity:${site.ruleId}`
     case 'signal':
       return signalProducer(site.shape)
+    case 'interproc':
+      // One producer rather than a family, so the id carries no variant. It matches the
+      // `interproc` outcome the sweep reports, which is what lets an operator reading
+      // `interproc 2` find the two candidates it counted.
+      return 'interproc'
   }
 }
 
@@ -191,6 +205,11 @@ export const runToctou = async (options: ToctouOptions): Promise<ToctouOutcome> 
     signalHandlers: 0,
     sharedKeys: 0,
     noDetectorTables: 0,
+    callerGuardedSites: 0,
+    callEdges: 0,
+    callSitesSeen: 0,
+    callSitesUnattributed: 0,
+    callSitesAmbiguous: 0,
   }
 
   const perCommit: AtomicityRule[][] = []
@@ -270,6 +289,9 @@ export const runToctou = async (options: ToctouOptions): Promise<ToctouOutcome> 
       ...(options.maxSitesPerProducer !== undefined
         ? { maxSitesPerProducer: options.maxSitesPerProducer }
         : {}),
+      ...(options.interprocedural !== undefined
+        ? { interprocedural: options.interprocedural }
+        : {}),
       log,
     })
     sites = sweep.sites
@@ -278,6 +300,11 @@ export const runToctou = async (options: ToctouOptions): Promise<ToctouOutcome> 
     coverage.functionsWithEvents = sweep.coverage.functionsWithEvents
     coverage.signalHandlers = sweep.coverage.signalHandlers
     coverage.sharedKeys = sweep.coverage.sharedKeys
+    coverage.callerGuardedSites = sweep.coverage.callerGuardedSites
+    coverage.callEdges = sweep.coverage.callEdges
+    coverage.callSitesSeen = sweep.coverage.callSitesSeen
+    coverage.callSitesUnattributed = sweep.coverage.callSitesUnattributed
+    coverage.callSitesAmbiguous = sweep.coverage.callSitesAmbiguous
     warnings.push(...sweep.warnings)
   } else {
     warnings.push(

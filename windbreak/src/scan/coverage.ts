@@ -158,6 +158,58 @@ const describe = (
  * Its segment is colon-separated rather than parenthesised, because each entry carries a
  * parenthesised note of its own and nesting the two would read as one clause.
  */
+/**
+ * What §4.4.3's interprocedural pass had to work with.
+ *
+ * A view of the toctou stage's coverage rather than a type of its own, so the summary
+ * and the stage report the same numbers from the same fields.
+ */
+export interface InterproceduralCoverage {
+  /** Call edges the pass resolved. */
+  callEdges: number
+  /** Call sites read from the program model — the graph's denominator. */
+  callSitesSeen: number
+  /** Call sites no indexed callable covers, so they belong to no known caller. */
+  callSitesUnattributed: number
+  /** Call sites dropped because several files define the callee name. */
+  callSitesAmbiguous: number
+  /** Atomicity sites whose every recorded caller holds the rule's lock. */
+  callerGuardedSites: number
+}
+
+/**
+ * The interprocedural summary line.
+ *
+ * It exists for the same reason `formatLanguageCoverage` does, applied to the call
+ * graph: the pass's headline result is a count of *nothing* when it finds nothing, and
+ * "no cross-function check-to-use pair" and "no call graph to look for one in" print
+ * identically. Printing the denominator beside the count is what separates them.
+ *
+ * The two drop reasons are named separately because they have different causes — an
+ * unattributed site is a parsing gap (a call outside any indexed callable), an
+ * ambiguous one is a name-resolution gap (two files, one name, no same-file match) —
+ * and a reader deciding whether to trust an empty result needs to know which they have.
+ *
+ * An empty program model is worded as a fact about the model rather than as `0 edges`,
+ * because "recon indexed no call sites" and "the call graph is complete and empty" are
+ * different statements about the target.
+ */
+export const formatInterproceduralCoverage = (
+  coverage: InterproceduralCoverage,
+): string => {
+  if (coverage.callSitesSeen === 0) {
+    return 'interprocedural: no call sites in the program model, so no call graph could be built'
+  }
+
+  return (
+    `interprocedural: ${coverage.callEdges} call edge(s) over ` +
+    `${coverage.callSitesSeen} call site(s) ` +
+    `(${coverage.callSitesUnattributed} unattributed, ` +
+    `${coverage.callSitesAmbiguous} ambiguous); ` +
+    `${coverage.callerGuardedSites} caller-guarded site(s)`
+  )
+}
+
 export const formatLanguageCoverage = (coverage: LanguageCoverage): string => {
   const total =
     coverage.sweptCallables + coverage.partiallySweptCallables + coverage.unsweptCallables

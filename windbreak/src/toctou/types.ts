@@ -320,6 +320,56 @@ export interface RuleViolation {
 }
 
 /**
+ * What the callers of a function do with an atomicity rule's lock.
+ *
+ * The counterexample this exists to answer is a helper that is only ever reached
+ * with the lock held: reported from inside the helper it looks like a violation, and
+ * read from its callers it is the fix. `lockedCallers === callers` is the evidence
+ * for that reading, and `complete` is what says whether the count can be trusted — a
+ * name several files define, or a call site no indexed function covers, means there
+ * may be a caller the graph cannot see.
+ *
+ * It carries no suppression. A call graph built from call expressions cannot see a
+ * function whose address is taken, so this is a strong hint for a reviewer rather
+ * than a proof, and the module annotates instead of deleting. See `lockcontext.ts`.
+ */
+export interface CallerLockContext {
+  /** Call sites into this function that the call graph attributed and resolved. */
+  callers: number
+  /** How many of those hold the rule's lock across the call. */
+  lockedCallers: number
+  /**
+   * Whether every call to this function was attributed and resolved.
+   *
+   * False means the caller count is a lower bound. Kept as its own field rather than
+   * folded into `allCallersLocked`, because both halves matter to the sentence: "all
+   * three recorded callers hold it" and "there may be a fourth" are both true, and a
+   * reviewer needs both.
+   */
+  complete: boolean
+  /** True when the caller set is complete and every one of them holds the lock. */
+  allCallersLocked: boolean
+}
+
+/**
+ * Where a checked name is re-resolved, in the function the caller reached.
+ *
+ * The field is `fileLine` and not `line` for the same reason
+ * `SignalOtherLocation.fileLine` is: every other line on a site is relative to the
+ * region being analysed and is translated by the sweep, whereas this one is already
+ * file-absolute. Two meanings for one word is what `describe.ts` exists to make
+ * impossible.
+ */
+export interface InterprocOtherLocation {
+  filePath: string
+  functionName: string
+  /** File-relative, unlike the site's own translated lines. */
+  fileLine: number
+  /** The path-resolving call that re-binds the name, e.g. `open`. */
+  callee: string
+}
+
+/**
  * A signal handler, as identified from the call that installed it.
  *
  * `signals` accumulates across registrations, and that accumulation is the
@@ -429,6 +479,35 @@ export type ToctouSite =
       ruleId: string
       /** Always null: a rule violation is one line, not a path. */
       checkLine: null
+      /**
+       * What this function's callers do with the rule's lock. Null when the
+       * interprocedural pass did not run.
+       *
+       * Only the atomicity kind carries it: a rule is a statement about a lock, and a
+       * lock is the one thing a caller can hold across a call that changes the
+       * finding. An FSM site's two ends are both in the body it was found in.
+       */
+      callerLock: CallerLockContext | null
+    })
+  | (ToctouSiteBase & {
+      kind: 'interproc'
+      fsm: null
+      ruleId: null
+      /**
+       * The caller's path check.
+       *
+       * The same field the FSM kind uses for the earlier end of its pair, because it
+       * plays the same role: the check the use was entitled to rely on. It is
+       * file-relative like every line on a site — the sweep translated it.
+       */
+      checkLine: number
+      /**
+       * Where the name is re-resolved, in another function and possibly another file.
+       *
+       * `matchLine` is the *call* in this function that reaches it, because that is the
+       * line a reviewer opens first; the far end is here, with its own file named.
+       */
+      other: InterprocOtherLocation
     })
   | (ToctouSiteBase & {
       kind: 'signal'
@@ -494,4 +573,38 @@ export interface ToctouCoverage {
    * different from reporting that nothing was found.
    */
   noDetectorTables: number
+  /**
+   * Atomicity sites whose every recorded caller holds the rule's lock.
+   *
+   * The precision signal the interprocedural pass adds without deleting anything: a
+   * high count means a large share of the target's atomicity candidates are helpers
+   * reached only under the lock, which is a fact about the code's style and worth
+   * knowing before reviewing them one at a time.
+   */
+  callerGuardedSites: number
+  /**
+   * Call edges the interprocedural pass resolved — the call graph's size.
+   *
+   * The denominator that makes an empty interprocedural result readable. "No
+   * cross-function check-to-use pair" and "no call graph to look for one in" print the
+   * same number of sites, and only this line tells them apart.
+   */
+  callEdges: number
+  /** Call sites read from the program model — what `callEdges` is a fraction of. */
+  callSitesSeen: number
+  /**
+   * Call sites no indexed callable covers, so they belong to no known caller.
+   *
+   * A call in a global initialiser, or in a file recon could not parse. It makes a
+   * caller set a lower bound, which is why a site's `callerLock.complete` can be false.
+   */
+  callSitesUnattributed: number
+  /**
+   * Call sites whose callee name several files define with no same-file match.
+   *
+   * Dropped rather than guessed at, so these too make a caller set partial. Counted
+   * apart from `callSitesUnattributed` because the two failures have different causes
+   * and different fixes: one is a parsing gap, the other a name-resolution one.
+   */
+  callSitesAmbiguous: number
 }

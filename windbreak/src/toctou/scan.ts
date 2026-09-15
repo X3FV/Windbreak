@@ -47,10 +47,19 @@ import { languageFilterSql } from '../detectors/capability'
 import { SourceCache } from '../engines/normalize'
 import { CALLABLE_KIND_FILTER } from '../recon/symbol-kinds'
 import { aliases, buildBindings } from './alias'
-import { describeFsmFinding, describeSignalFinding, describeViolation } from './describe'
+import { buildCallGraph, readProgramModel } from './callgraph'
+import {
+  describeFsmFinding,
+  describeInterprocFinding,
+  describeSignalFinding,
+  describeViolation,
+} from './describe'
 import { accessedExpressions, bodyStartIndex, extractEvents } from './events'
 import { runFsm } from './fsm'
 import { findSignalHandlers } from './handlers'
+import { interprocFindings, summarizeCallee } from './interproc'
+import { callerLockVerdict, covered, lockIntervals } from './lockcontext'
+import { definitionKey } from './resolver'
 import {
   fileScopeDeclarations,
   globalTouches,
@@ -64,6 +73,9 @@ import { SIGNAL_SHAPES, TOCTOU_FSMS, handlerKey, signalProducer } from './types'
 import type { Database } from 'bun:sqlite'
 import type { DetectorId } from '../detectors/capability'
 import type { Bindings } from './alias'
+import type { CallGraph } from './callgraph'
+import type { CalleePathSummary } from './interproc'
+import type { LockInterval } from './lockcontext'
 import type {
   AtomicEvent,
   FileScopeDeclarations,
@@ -105,6 +117,20 @@ export interface SweepOptions {
   sourceCache?: SourceCache
   /** Cap per FSM, per rule, and per signal shape. */
   maxSitesPerProducer?: number
+  /**
+   * A call graph to use, instead of reading one from the program model. Supplied by
+   * tests and by a caller that has already built one for its own reasons.
+   */
+  callGraph?: CallGraph
+  /**
+   * Annotate atomicity sites with what their callers do with the rule's lock.
+   * Default true, and it needs a program model to have something to read.
+   *
+   * This never suppresses a site — see `lockcontext.ts` on why a call graph built
+   * from call expressions cannot support deleting a finding. Turning it off only
+   * removes the clause from the evidence and the coverage count.
+   */
+  interprocedural?: boolean
   log?: (line: string) => void
 }
 
@@ -226,49 +252,21 @@ export const buildSignalPrePass = (input: {
   }
 }
 
+// `lockIntervals` and `covered` live in `./lockcontext`, so the rule sweep and the
+// caller-lock verdict share one notion of "where the lock was held" rather than two.
+
 /**
- * The lock-held intervals a rule's lock establishes in one function.
+ * Whether every call to a name was attributed and resolved.
  *
- * Intervals rather than a boolean, because the question a rule asks is *where* the
- * lock was held: an access between the acquire and its release is protected, and an
- * access after the release — or before the acquire — is not. A boolean would report
- * a use before the lock as protected.
- *
- * An unmatched acquire (no release in the function) ends the interval at the end of
- * the function. That is the conservative reading: the lock is treated as held for
- * the rest of the body, so a use inside it is *not* reported. Under-reporting here
- * is deliberate — a `return` that skips the release is a resource leak, which is a
- * different defect than the one this module is about.
+ * The `complete` half of a caller-lock verdict, and it is asked with the *name*
+ * rather than the definition on purpose: both a dropped call site and an ambiguous
+ * callee are counted per name, because either could have been a call to this
+ * function. An incomplete set is never treated as an absent one.
  */
-const lockIntervals = (
-  events: readonly AtomicEvent[],
-  lock: string,
-  bindings: Bindings,
-  lastLine: number,
-): Array<{ from: number; to: number }> => {
-  const intervals: Array<{ from: number; to: number }> = []
-  let openedAt: number | null = null
-
-  for (const event of events) {
-    if (event.kind === 'lock' && aliases(event.key, lock, bindings)) {
-      if (openedAt === null) openedAt = event.line
-      continue
-    }
-    if (event.kind === 'unlock' && aliases(event.key, lock, bindings)) {
-      if (openedAt !== null) {
-        intervals.push({ from: openedAt, to: event.line })
-        openedAt = null
-      }
-    }
-  }
-
-  if (openedAt !== null) intervals.push({ from: openedAt, to: lastLine })
-  return intervals
+const isCallerSetComplete = (graph: CallGraph, name: string): boolean => {
+  const dropped = graph.droppedCallersOf(name)
+  return dropped.ambiguous === 0 && dropped.unattributed === 0
 }
-
-/** Whether a line falls inside any of the intervals. */
-const covered = (line: number, intervals: ReadonlyArray<{ from: number; to: number }>): boolean =>
-  intervals.some((interval) => line >= interval.from && line <= interval.to)
 
 /**
  * Rule violations in one function body.
@@ -348,6 +346,11 @@ export const sweepFunctions = (options: SweepOptions): SweepResult => {
     signalHandlers: 0,
     sharedKeys: 0,
     noDetectorTables: 0,
+    callerGuardedSites: 0,
+    callEdges: 0,
+    callSitesSeen: 0,
+    callSitesUnattributed: 0,
+    callSitesAmbiguous: 0,
   }
 
   // Counted before the filter is applied, so the report can say how much of the
@@ -400,6 +403,9 @@ export const sweepFunctions = (options: SweepOptions): SweepResult => {
   const ruleCapped = new Map<string, boolean>(options.rules.map((rule) => [rule.id, false]))
   const signalSiteCount = new Map<SignalShape, number>(signalShapes.map((shape) => [shape, 0]))
   const signalCapped = new Map<SignalShape, boolean>(signalShapes.map((shape) => [shape, false]))
+  // One producer, so a scalar rather than a map — the same cap discipline applies.
+  let interprocSiteCount = 0
+  let interprocCapped = false
 
   // The pre-pass is where the signal producer's cost is, so it only runs when the
   // producer is on. Its result is null rather than empty so a disabled producer and a
@@ -427,6 +433,75 @@ export const sweepFunctions = (options: SweepOptions): SweepResult => {
     }
   }
 
+  // §4.4.3's interprocedural half. Two things are computed before the sweep, because
+  // a violation's judgement needs a fact about *other* functions:
+  //
+  //  1. the call graph, so a function's callers are known at all; and
+  //  2. which lines each rule's lock covers in each function, so a call site can be
+  //     asked whether the lock was held across it.
+  //
+  // (2) is a second event extraction over every function, which is a real cost and is
+  // why this is one flag rather than always-on. The graph is only built when there is
+  // a rule to judge: atomicity sites are the only kind a caller can change.
+  const interprocedural = options.interprocedural !== false
+  let graph: CallGraph | null = null
+  const lockIntervalsByFunction = new Map<string, Map<string, LockInterval[]>>()
+  const summaries = new Map<string, CalleePathSummary>()
+
+  if (interprocedural) {
+    graph = options.callGraph ?? buildCallGraph(readProgramModel(options.db, options.targetId))
+
+    // One walk, two products: the callee summaries the cross-function producer reads,
+    // and the lock intervals the annotation reads. Both need the same events and
+    // bindings, so they are extracted once per function here.
+    for (const fn of functions) {
+      const lines = sourceCache.lines(fn.file_path)
+      if (lines === null) continue
+      const from = Math.max(0, fn.start_line - 1)
+      const to = Math.min(lines.length, fn.end_line)
+      if (to <= from) continue
+
+      const region = lines.slice(from, to)
+      const events = extractEvents(region)
+      const bindings = buildBindings(region)
+
+      summaries.set(
+        definitionKey(fn.file_path, fn.name),
+        summarizeCallee({ lines: region, startLine: fn.start_line, events, bindings }),
+      )
+
+      if (options.rules.length === 0) continue
+      const perRule = new Map<string, LockInterval[]>()
+      for (const rule of options.rules) {
+        perRule.set(rule.id, lockIntervals(events, rule.lock, bindings, region.length))
+      }
+      lockIntervalsByFunction.set(definitionKey(fn.file_path, fn.name), perRule)
+    }
+
+    coverage.callEdges = graph.edges.length
+    coverage.callSitesSeen = graph.referencesSeen
+    coverage.callSitesUnattributed = graph.unattributed
+    coverage.callSitesAmbiguous = graph.ambiguous.length
+
+    // The guard that stops an empty graph from reading as a clean tree. Both halves
+    // matter: a target with no call sites at all has nothing to say here, while a
+    // target with call sites and no resolved edges is a *result* about the graph, and
+    // every interprocedural finding below is absent for that reason rather than
+    // because the code is sound.
+    if (graph.edges.length === 0 && graph.referencesSeen > 0) {
+      warnings.push(
+        `The call graph resolved no edges from ${graph.referencesSeen} call site(s), so no ` +
+          'cross-function check-to-use pair could be validated and no atomicity site could ' +
+          'be judged against its callers. That is an empty graph, not a clean tree.',
+      )
+    }
+
+    log(
+      `[toctou] call graph: ${graph.edges.length} edge(s) over ` +
+        `${graph.referencesSeen} call site(s)`,
+    )
+  }
+
   const sites: ToctouSite[] = []
 
   for (const fn of functions) {
@@ -438,7 +513,8 @@ export const sweepFunctions = (options: SweepOptions): SweepResult => {
     const allCapped =
       fsms.every((fsm) => (fsmSites.get(fsm) ?? 0) >= maxSites) &&
       options.rules.every((rule) => (ruleSites.get(rule.id) ?? 0) >= maxSites) &&
-      signalShapes.every((shape) => (signalSiteCount.get(shape) ?? 0) >= maxSites)
+      signalShapes.every((shape) => (signalSiteCount.get(shape) ?? 0) >= maxSites) &&
+      (graph === null || interprocSiteCount >= maxSites)
     if (allCapped) {
       // Stopping entirely leaves this and every later function unexamined, so each
       // producer that was at its cap is partial even though nothing was dropped from
@@ -446,6 +522,7 @@ export const sweepFunctions = (options: SweepOptions): SweepResult => {
       for (const fsm of fsms) fsmCapped.set(fsm, true)
       for (const rule of options.rules) ruleCapped.set(rule.id, true)
       for (const shape of signalShapes) signalCapped.set(shape, true)
+      if (graph !== null) interprocCapped = true
       break
     }
 
@@ -515,6 +592,23 @@ export const sweepFunctions = (options: SweepOptions): SweepResult => {
           ruleCapped.set(rule.id, true)
           break
         }
+
+        // What this function's callers do with the rule's lock. Computed before the cap
+        // is charged so a guarded site is counted whether or not it survives the cap:
+        // the coverage line describes the analysis, not the truncated output.
+        const callerLock =
+          graph === null
+            ? null
+            : callerLockVerdict({
+                callers: graph.callersOf(fn.file_path, fn.name),
+                complete: isCallerSetComplete(graph, fn.name),
+                intervalsOf: (filePath, name) =>
+                  lockIntervalsByFunction.get(definitionKey(filePath, name))?.get(rule.id) ??
+                  null,
+              })
+
+        if (callerLock?.allCallersLocked === true) coverage.callerGuardedSites += 1
+
         ruleSites.set(rule.id, (ruleSites.get(rule.id) ?? 0) + 1)
         sites.push({
           kind: 'atomicity',
@@ -528,7 +622,8 @@ export const sweepFunctions = (options: SweepOptions): SweepResult => {
           checkLine: null,
           resource: violation.resource,
           lock: rule.lock,
-          evidence: describeViolation(violation, rule, toFileLine),
+          callerLock,
+          evidence: describeViolation(violation, rule, toFileLine, callerLock),
         })
       }
     }
@@ -589,6 +684,56 @@ export const sweepFunctions = (options: SweepOptions): SweepResult => {
         }
       }
     }
+
+    // §4.4.3's cross-function check-to-use. This function is the *caller*: the check is
+    // here and the re-resolution is in whatever it calls. That is the one direction
+    // that needs no return-value reasoning — see `interproc.ts` — which is why the
+    // sweep only has to know which calls this function makes.
+    if (graph !== null) {
+      const calls = graph.edgesFrom(fn.file_path, fn.name)
+      if (calls.length > 0) {
+        const findings = interprocFindings({
+          caller: {
+            filePath: fn.file_path,
+            functionName: fn.name,
+            startLine: fn.start_line,
+            lines: region,
+            events,
+            bindings,
+          },
+          calls: calls.map((edge) => ({
+            toFile: edge.toFile,
+            toFunction: edge.toFunction,
+            line: edge.line,
+          })),
+          summaryOf: (filePath, name) => summaries.get(definitionKey(filePath, name)) ?? null,
+        })
+
+        for (const finding of findings) {
+          if (interprocSiteCount >= maxSites) {
+            interprocCapped = true
+            break
+          }
+          interprocSiteCount += 1
+          sites.push({
+            kind: 'interproc',
+            fsm: null,
+            ruleId: null,
+            filePath: fn.file_path,
+            functionName: fn.name,
+            startLine: fn.start_line,
+            endLine: fn.end_line,
+            // The call, because that is the line in *this* function a reviewer opens.
+            matchLine: toFileLine(finding.callLine),
+            checkLine: toFileLine(finding.checkLine),
+            resource: finding.resource,
+            lock: null,
+            other: finding.other,
+            evidence: describeInterprocFinding(finding, toFileLine),
+          })
+        }
+      }
+    }
   }
 
   const outcomes: ToctouSweepOutcome[] = [
@@ -607,6 +752,11 @@ export const sweepFunctions = (options: SweepOptions): SweepResult => {
       sites: signalSiteCount.get(shape) ?? 0,
       capped: signalCapped.get(shape) ?? false,
     })),
+    // Omitted rather than listed at zero when the pass is off: a producer that did not
+    // run must not read as one that ran and found nothing.
+    ...(graph === null
+      ? []
+      : [{ producer: 'interproc', sites: interprocSiteCount, capped: interprocCapped }]),
   ]
 
   for (const outcome of outcomes) {

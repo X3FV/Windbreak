@@ -70,8 +70,26 @@ export interface ScanCounts {
   toctouAtomicity: number
   /** Sites the four CWE-364 signal-handler shapes reported. */
   toctouSignal: number
+  /** Sites the cross-function check-to-use producer reported. */
+  toctouInterproc: number
   /** Function(s) the pre-pass identified as signal handlers. */
   signalHandlers: number
+  /**
+   * Call edges the interprocedural pass resolved.
+   *
+   * The call graph's size, and the denominator that keeps an empty interprocedural
+   * result from reading as a clean tree — the same reason `signalHandlers` is carried
+   * beside the signal counts.
+   */
+  callEdges: number
+  /** Call sites read from the program model — what `callEdges` is a fraction of. */
+  callSitesSeen: number
+  /** Call sites no indexed callable covers, so they belong to no known caller. */
+  callSitesUnattributed: number
+  /** Call sites dropped because several files define the callee name. */
+  callSitesAmbiguous: number
+  /** Atomicity sites whose every recorded caller holds the rule's lock. */
+  callerGuardedSites: number
   triaged: number
   confirmed: number
   dropped: number
@@ -94,7 +112,13 @@ export const EMPTY_COUNTS: ScanCounts = {
   toctouFsm: 0,
   toctouAtomicity: 0,
   toctouSignal: 0,
+  toctouInterproc: 0,
   signalHandlers: 0,
+  callEdges: 0,
+  callSitesSeen: 0,
+  callSitesUnattributed: 0,
+  callSitesAmbiguous: 0,
+  callerGuardedSites: 0,
   triaged: 0,
   confirmed: 0,
   dropped: 0,

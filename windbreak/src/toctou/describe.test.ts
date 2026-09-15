@@ -9,6 +9,7 @@ import { runSignalShapes } from './signal'
 
 import type {
   AtomicityRule,
+  CallerLockContext,
   RuleViolation,
   SignalFinding,
   ToctouFinding,
@@ -189,6 +190,7 @@ describe('describeSite', () => {
       checkLine: null,
       resource: 'g.hits',
       lock: 'g.mu',
+      callerLock: null,
       evidence: '`g.hits` is accessed at line 2',
     })
 
@@ -435,5 +437,90 @@ describe('the FSMs and the prose agree', () => {
     expect(sentence).toContain('checked at line 23')
     expect(sentence).toContain('released at line 24')
     expect(sentence).toContain('used at line 25')
+  })
+})
+
+describe('the caller-lock clause', () => {
+  const rule: AtomicityRule = {
+    id: 'ar_1',
+    resource: 'g.hits',
+    lock: 'g.mu',
+    originPatchSha: 'a'.repeat(40),
+    originFile: 'src/a.c',
+    occurrences: 1,
+  }
+
+  const violation: RuleViolation = {
+    line: 19,
+    resource: 'g.hits',
+    lock: 'g.mu',
+    heldElsewhere: false,
+  }
+
+  const toFileLine = (line: number): number => line
+
+  const context = (over: Partial<CallerLockContext> = {}): CallerLockContext => ({
+    callers: 2,
+    lockedCallers: 2,
+    complete: true,
+    allCallersLocked: true,
+    ...over,
+  })
+
+  test('is absent when the interprocedural pass did not run', () => {
+    const sentence = describeViolation(violation, rule, toFileLine)
+
+    expect(sentence).not.toContain('call graph')
+    expect(sentence).not.toContain('recorded caller')
+    expect(sentence).toContain('never held in this function')
+  })
+
+  test('no recorded call is reported as such, not as all callers being locked', () => {
+    const sentence = describeViolation(
+      violation,
+      rule,
+      toFileLine,
+      context({ callers: 0, lockedCallers: 0, allCallersLocked: false }),
+    )
+
+    expect(sentence).toContain('so it may be an entry point')
+    expect(sentence).not.toContain('every recorded caller')
+  })
+
+  test('names how many recorded callers hold the lock', () => {
+    const sentence = describeViolation(
+      violation,
+      rule,
+      toFileLine,
+      context({ callers: 3, lockedCallers: 2, allCallersLocked: false }),
+    )
+
+    expect(sentence).toContain('2 of 3 recorded callers hold `g.mu` across the call')
+    expect(sentence).not.toContain('partial')
+  })
+
+  test('an all-locked reading is offered as evidence, not as a verdict', () => {
+    const sentence = describeViolation(violation, rule, toFileLine, context())
+
+    expect(sentence).toContain('every recorded caller holds `g.mu` across the call')
+    expect(sentence).toContain('may be a helper reached only locked')
+  })
+
+  test('says the caller set is partial rather than implying it is complete', () => {
+    const sentence = describeViolation(
+      violation,
+      rule,
+      toFileLine,
+      context({ callers: 1, lockedCallers: 1, complete: false, allCallersLocked: false }),
+    )
+
+    expect(sentence).toContain('the caller set is partial')
+    expect(sentence).toContain('a caller not in the graph may differ')
+  })
+
+  test('the provenance parenthesis still closes the sentence', () => {
+    const sentence = describeViolation(violation, rule, toFileLine, context())
+
+    expect(sentence.endsWith(`in ${rule.originFile})`)).toBe(true)
   })
 })

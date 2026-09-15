@@ -88,9 +88,14 @@ export {
   ruleViolations,
   sweepFunctions,
 } from './scan'
+export { buildCallGraph, enclosingCallable, readProgramModel } from './callgraph'
+export { interprocFindings, summarizeCallee } from './interproc'
+export { callerLockVerdict, covered, lockIntervals } from './lockcontext'
+export { buildDefinitionIndex, definitionKey, resolveName } from './resolver'
 export { MIN_SWEEP_MS, producerId, runToctou } from './run'
 export {
   describeFsmFinding,
+  describeInterprocFinding,
   describeSignalFinding,
   describeSite,
   describeViolation,
@@ -113,6 +118,16 @@ export type { RuleMiningResult } from './rules'
 export type { LineTranslator } from './describe'
 export type { SignalPrePass, SweepOptions, SweepResult } from './scan'
 export type {
+  CallEdge,
+  CallGraph,
+  CallGraphDefinition,
+  CallGraphSource,
+  CallReference,
+} from './callgraph'
+export type { CalleePathSummary, InterprocFinding } from './interproc'
+export type { LockInterval } from './lockcontext'
+export type { DefinitionIndex, NameResolution } from './resolver'
+export type {
   ToctouOptions,
   ToctouOutcome,
   ToctouRequest,
@@ -123,7 +138,9 @@ export type {
   AtomicEvent,
   AtomicEventKind,
   AtomicityRule,
+  CallerLockContext,
   FileScopeDeclarations,
+  InterprocOtherLocation,
   RuleViolation,
   SignalFinding,
   SignalHandler,
