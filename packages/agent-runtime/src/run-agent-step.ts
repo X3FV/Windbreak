@@ -140,6 +140,54 @@ export function toTokenCountInputSchema(
   return jsonSchema
 }
 
+/**
+ * A tool's input schema in the only form that can be stored: JSON Schema.
+ *
+ * `AgentState.toolDefinitions` is written to `run-state.json` and JSON-round-tripped on the
+ * render thread at every in-flight snapshot (`cloneSessionState` in the SDK, which exists
+ * precisely because that round trip is ~50x cheaper than `cloneDeep`). Storing the live Zod
+ * schema there — which is what `tool.inputSchema as {}` did — makes every one of those
+ * serializations throw, because Zod's object graph is cyclic by construction (`def.shape`,
+ * `_cachedInner`, `def.options.N`). The cost was invisible and total: the fast clone path
+ * never ran, so each snapshot paid the `cloneDeep` freeze the function was written to
+ * avoid, and every checkpoint wrote `"[Circular]"` where the schema should have been.
+ *
+ * This is the same conversion `toTokenCountInputSchema` performs, without the count_tokens
+ * massaging (`$schema` removal, the top-level `type: 'object'` backfill) — those are
+ * properties of an Anthropic request rather than of a tool definition, and the count path
+ * applies them itself when it reads these back.
+ *
+ * A schema that cannot be converted becomes the empty object schema — the same substitution
+ * the count path makes, and the only shape here that is honest about knowing nothing: it
+ * describes "any object" rather than a parameter list someone might read as real.
+ */
+export function toStoredInputSchema(
+  inputSchema: unknown,
+): Record<string, unknown> {
+  if (inputSchema != null && typeof inputSchema === 'object') {
+    if (
+      typeof (inputSchema as { safeParse?: unknown }).safeParse === 'function'
+    ) {
+      try {
+        return z.toJSONSchema(inputSchema as z.ZodType, {
+          io: 'input',
+        }) as Record<string, unknown>
+      } catch {
+        return { type: 'object', properties: {} }
+      }
+    }
+
+    // Already JSON — an AI SDK wrapper, a hand-written schema, or a value that came back
+    // from `run-state.json`. Copied so a caller cannot mutate the tool's own object through
+    // the state.
+    if (!Array.isArray(inputSchema)) {
+      return { ...(inputSchema as Record<string, unknown>) }
+    }
+  }
+
+  return { type: 'object', properties: {} }
+}
+
 async function additionalToolDefinitions(
   params: {
     agentTemplate: AgentTemplate
@@ -371,7 +419,10 @@ export const runAgentStep = async (
                 name,
                 {
                   description: tool.description,
-                  inputSchema: tool.inputSchema as {},
+                  // Converted even here, where the snapshot is only hashed and logged: a
+                  // cyclic value makes `stableHash` hash garbage, which is the opposite of
+                  // what a cache-correlation snapshot is for.
+                  inputSchema: toStoredInputSchema(tool.inputSchema),
                 },
               ]),
             )
@@ -964,11 +1015,14 @@ export async function loopAgentSteps(
       }),
   )
 
-  // Convert tools to a serializable format for context-pruner token counting
+  // Convert tools to a serializable format for context-pruner token counting. The conversion
+  // is load-bearing beyond the count: this object goes into `AgentState.toolDefinitions`, which
+  // is persisted and JSON-cloned on every snapshot, so a live schema here is a cycle in state
+  // (see `toStoredInputSchema`).
   const toolDefinitions = mapValues(tools, (tool) => ({
     description:
       typeof tool.description === 'string' ? tool.description : undefined,
-    inputSchema: tool.inputSchema as {},
+    inputSchema: toStoredInputSchema(tool.inputSchema),
   }))
 
   const additionalToolDefinitionsWithCache = async () => {

@@ -521,6 +521,7 @@ async function runOnce({
         projectIndex,
         maxAgentSteps,
       },
+      logger,
     )
   } else {
     // No previous run, so create a fresh session state

@@ -1,5 +1,7 @@
 import { mapValues } from 'lodash'
 
+import { toStoredInputSchema } from '../../../run-agent-step'
+
 import {
   validateAndGetAgentTemplate,
   validateAgentInput,
@@ -111,10 +113,12 @@ export const handleSpawnAgentInline = (async (
       },
     ),
     systemPrompt: system,
+    // The subagent's own state is persisted and JSON-cloned on the same path as the root
+    // agent's, so its schemas have to be JSON Schema too (`toStoredInputSchema`).
     toolDefinitions: mapValues(parentTools, (tool) => ({
       description:
         typeof tool.description === 'string' ? tool.description : undefined,
-      inputSchema: tool.inputSchema as {},
+      inputSchema: toStoredInputSchema(tool.inputSchema),
     })),
   }
 

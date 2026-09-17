@@ -1114,11 +1114,28 @@ export async function applyOverridesToSessionState(
     customToolDefinitions?: CustomToolDefinition[]
     maxAgentSteps?: number
   },
+  logger?: Logger,
 ): Promise<SessionState> {
-  // Deep clone to avoid mutating the original session state
-  const sessionState = JSON.parse(
-    JSON.stringify(baseSessionState),
-  ) as SessionState
+  // Deep clone to avoid mutating the original session state.
+  //
+  // A JSON round trip rather than `cloneDeep` for the reason the snapshot clone gives
+  // (`cloneSessionState`): the state *is* JSON — it is persisted and re-serialized — and this
+  // is far cheaper than walking it. But this call sits on the run path, ahead of the model, so
+  // anything JSON cannot carry in the state (a live schema in `toolDefinitions`, a BigInt in a
+  // tool result) used to end the turn with "JSON.stringify cannot serialize cyclic structures."
+  // before a single token was sent. Resuming from a previous run is how that state arrives.
+  // Degrading to the slower clone keeps the turn alive, and the log line says why it was paid
+  // so the value can be fixed rather than merely survived.
+  let sessionState: SessionState
+  try {
+    sessionState = JSON.parse(JSON.stringify(baseSessionState)) as SessionState
+  } catch (error) {
+    logger?.debug?.(
+      { error: error instanceof Error ? error.message : String(error) },
+      'JSON clone of session state failed; falling back to cloneDeep',
+    )
+    sessionState = cloneDeep(baseSessionState)
+  }
 
   // Apply maxAgentSteps override
   if (overrides.maxAgentSteps !== undefined) {
