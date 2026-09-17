@@ -10,6 +10,7 @@
  */
 
 import type { Database } from 'bun:sqlite'
+import type { WindbreakModelHost } from '../client'
 import type { WindbreakConfig } from '../config'
 import type { ProviderFailure } from '../provider-failure'
 import type { ReportResult } from '../report'
@@ -91,6 +92,24 @@ export interface ScanCounts {
   callSitesAmbiguous: number
   /** Atomicity sites whose every recorded caller holds the rule's lock. */
   callerGuardedSites: number
+  /** §4.4.4's inventory: callables the index can be entered at. */
+  entryPoints: number
+  /** Callable definitions the reachability closure was computed over. */
+  reachCallables: number
+  /** Callables an attacker-input entry point reaches — the claim a triager asks for. */
+  reachAttackerInput: number
+  /** Callables reached only from a function nothing in the index calls. */
+  reachExposedApi: number
+  /** Callables no entry reaches, with every caller set complete. */
+  reachUnreachable: number
+  /** Callables the search could not settle — absence of evidence, not evidence of absence. */
+  reachUnknown: number
+  /** Definitions whose caller set is incomplete, so nothing downstream is settled. */
+  reachTaintRoots: number
+  /** Callee names with no indexed definition: a libc call, or a call through a pointer. */
+  reachExternalCallees: number
+  /** The subset written `Q::f`, which a name-only index cannot resolve (§20.39.8). */
+  reachQualifiedCallees: number
   triaged: number
   confirmed: number
   dropped: number
@@ -120,6 +139,15 @@ export const EMPTY_COUNTS: ScanCounts = {
   callSitesUnattributed: 0,
   callSitesAmbiguous: 0,
   callerGuardedSites: 0,
+  entryPoints: 0,
+  reachCallables: 0,
+  reachAttackerInput: 0,
+  reachExposedApi: 0,
+  reachUnreachable: 0,
+  reachUnknown: 0,
+  reachTaintRoots: 0,
+  reachExternalCallees: 0,
+  reachQualifiedCallees: 0,
   triaged: 0,
   confirmed: 0,
   dropped: 0,
@@ -139,7 +167,20 @@ export const EMPTY_COUNTS: ScanCounts = {
  * swallows.
  */
 export type InvokerOutcome =
-  | { ok: true; invoker: ModelInvoker }
+  | {
+      ok: true
+      invoker: ModelInvoker
+      /**
+       * Release the Freebuff sessions the invoker opened (§20.41).
+       *
+       * Carried on the outcome because the scan is what owns the run's lifetime:
+       * the sessions are a slot the account holds, and a scan that ended without
+       * releasing one would leave the operator's own `freebuff` chat locked out
+       * until it expired. Optional so a test's fake invoker has nothing to
+       * release.
+       */
+      close?: () => Promise<void>
+    }
   | { ok: false; reason: string }
 
 export interface ScanOptions {
@@ -171,6 +212,16 @@ export interface ScanOptions {
   runId?: string
   /** Inject the model transport; otherwise one is resolved from the environment. */
   resolveInvoker?: () => Promise<InvokerOutcome>
+  /**
+   * A model transport the caller already owns (§20.41).
+   *
+   * Absent, the scan resolves one from the environment — the right thing for a command.
+   * A **hosted** caller passes its own here, because Freebuff's free mode is admitted only
+   * to the freebuff CLI as a caller, so a scan run inside that CLI has to use the client
+   * and the session the CLI already holds. A borrowed host is neither created nor released
+   * by the scan: its `close` is the owner's.
+   */
+  modelHost?: WindbreakModelHost
   /**
    * Override the environment-touching stage entry points. Only tests supply
    * this; the pipeline stages are driven by `resolveInvoker` instead. The type

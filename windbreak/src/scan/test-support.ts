@@ -15,6 +15,8 @@ import { persistCandidates } from '../engines'
 import { applySchema } from '../state/db'
 
 import type { Candidate } from '../engines'
+import type { ReachabilityOutcome } from '../reach'
+import type { EntryKind } from '../reach'
 import type { ScanDeps } from './run'
 
 export const SCAN_TARGET_ID = 'target-1'
@@ -174,6 +176,68 @@ const enginesStub = (input: { candidates: Candidate[]; stoppedBy?: 'budget-abort
   warnings: [],
   stoppedBy: input.stoppedBy ?? null,
 })
+
+/**
+ * A §4.4.4 outcome with no inventory and no conclusions, or the counts a test asks for.
+ *
+ * Empty by default for the same reason `patchMineStub` is: a real closure needs the
+ * target's own program model, which a stub cannot have. The counts are settable so the
+ * scan tests can assert that what the pass reports reaches the stage record and the
+ * summary line — the parts of the orchestration that are this stage's business.
+ */
+export const reachabilityStub = (
+  input: {
+    definitions?: number
+    entries?: number
+    entryKinds?: Partial<Record<EntryKind, number>>
+    attackerInput?: number
+    exposedApi?: number
+    unreachable?: number
+    unknown?: number
+    taintRoots?: number
+    externalCallees?: number
+    qualifiedCallees?: number
+    annotated?: number
+    unlocated?: number
+    warnings?: string[]
+  } = {},
+): ReachabilityOutcome => {
+  const entryKinds: Record<EntryKind, number> = {
+    'fuzz-entry': 0,
+    main: 0,
+    'input-source': 0,
+    unrooted: 0,
+    ...input.entryKinds,
+  }
+  const entries = input.entries ?? 0
+
+  return {
+    entries: [],
+    counts: {
+      definitions: input.definitions ?? 0,
+      entries,
+      attackerInput: input.attackerInput ?? 0,
+      exposedApi: input.exposedApi ?? 0,
+      unreachable: input.unreachable ?? 0,
+      unknown: input.unknown ?? 0,
+    },
+    coverage: {
+      entries,
+      entryKinds,
+      callEdges: 0,
+      callSitesSeen: 0,
+      callSitesUnattributed: 0,
+      externalCallees: input.externalCallees ?? 0,
+      qualifiedCallees: input.qualifiedCallees ?? 0,
+      ambiguousCallees: 0,
+      taintRoots: input.taintRoots ?? 0,
+      noEntries: entries === 0 && (input.definitions ?? 0) === 0,
+    },
+    annotated: input.annotated ?? 0,
+    unlocated: input.unlocated ?? 0,
+    warnings: input.warnings ?? [],
+  }
+}
 
 const replayStub = () => ({
   candidates: [] as Candidate[],
@@ -344,6 +408,7 @@ export interface ScanDepCalls {
   engines: number
   patchMine: number
   toctou: number
+  reach: number
   replay: number
   report: number
 }
@@ -360,6 +425,7 @@ export const createScanDeps = (
     engines: 0,
     patchMine: 0,
     toctou: 0,
+    reach: 0,
     replay: 0,
     report: 0,
   },
@@ -395,6 +461,14 @@ export const createScanDeps = (
     calls.toctou += 1
     return toctouStub()
   }) as unknown as ScanDeps['runToctou'],
+  // §4.4.4's closure needs a real program model to say anything, so the default stub
+  // classifies nothing and records no inventory. A test that wants candidates annotated
+  // overrides it; the real pass is exercised by `reach/run.test.ts` against a seeded
+  // model, which is the only place it can be, since it reads the target's own symbols.
+  runReachability: (() => {
+    calls.reach += 1
+    return reachabilityStub()
+  }) as unknown as ScanDeps['runReachability'],
   runVariantHunt: (() => {
     calls.replay += 1
     return replayStub()

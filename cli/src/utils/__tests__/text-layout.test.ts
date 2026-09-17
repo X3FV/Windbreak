@@ -1,6 +1,58 @@
 import { describe, test, expect } from 'bun:test'
 
-import { computeInputLayoutMetrics } from '../text-layout'
+import {
+  computeInputLayoutMetrics,
+  getLastNVisualLines,
+  wrapToVisualLines,
+} from '../text-layout'
+
+describe('wrapToVisualLines', () => {
+  test('has no rows for empty text', () => {
+    expect(wrapToVisualLines('', 40)).toEqual([])
+  })
+
+  test('wraps on whitespace, keeping the break a single row', () => {
+    expect(wrapToVisualLines('one two three', 7)).toEqual(['one two', ' three'])
+  })
+
+  test('hard-wraps a token wider than the terminal', () => {
+    expect(wrapToVisualLines('abcdefgh', 3)).toEqual(['abc', 'def', 'gh'])
+  })
+
+  test('breaks on embedded newlines', () => {
+    expect(wrapToVisualLines('a\nb', 40)).toEqual(['a', 'b'])
+  })
+
+  test('measures wide glyphs as two columns', () => {
+    // The counts a view prints beside a list are only true if the wrap agrees with the
+    // terminal about how much room a character takes.
+    expect(wrapToVisualLines('日本語', 4)).toEqual(['日本', '語'])
+  })
+})
+
+describe('getLastNVisualLines', () => {
+  test('returns nothing for empty text, so "is there anything to show" stays answerable', () => {
+    expect(getLastNVisualLines('', 40, 5)).toEqual({ lines: [], hasMore: false })
+  })
+
+  test('keeps the last rows and says whether it dropped any', () => {
+    expect(getLastNVisualLines('a\nb\nc\nd\ne', 80, 2)).toEqual({
+      lines: ['d', 'e'],
+      hasMore: true,
+    })
+  })
+
+  test('reports no truncation when the text fits', () => {
+    expect(getLastNVisualLines('a\nb', 80, 10)).toEqual({
+      lines: ['a', 'b'],
+      hasMore: false,
+    })
+  })
+
+  test('takes no rows for a non-positive row budget', () => {
+    expect(getLastNVisualLines('a\nb', 80, 0)).toEqual({ lines: [], hasMore: false })
+  })
+})
 
 describe('computeInputLayoutMetrics', () => {
   test('single-line content keeps height at 1 without gutter', () => {

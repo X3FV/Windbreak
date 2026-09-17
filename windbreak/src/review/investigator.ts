@@ -39,6 +39,7 @@ import { createHash } from 'crypto'
 import os from 'os'
 import path from 'path'
 
+import { FreeModeModelError } from '../freebuff-agents'
 import { createInvestigator, DEFAULT_INVESTIGATOR_MODEL } from '../investigate/agent'
 import { DEFAULT_INVESTIGATOR_AGENT } from '../investigate/agents'
 import { createConversationBudget } from '../investigate/conversation'
@@ -50,6 +51,7 @@ import { describeProviderFailure } from '../provider-failure'
 
 import type { Database } from 'bun:sqlite'
 import type { CodebuffClient } from '@codebuff/sdk'
+import type { FreebuffSessions } from '../freebuff-session'
 import type { InvestigatorAgentName } from '../investigate/agents'
 import type { ConversationBudget, ConversationBudgetState } from '../investigate/conversation'
 import type { ModelRoleConfig } from '../models'
@@ -200,6 +202,14 @@ export interface CreateReviewInvestigatorOptions {
    * offline, and most reviews will not use the investigator at all.
    */
   client: CodebuffClient | null
+  /**
+   * The Freebuff sessions a turn's model calls are billed to (spec §20.41).
+   *
+   * Nullable in step with `client`, and for the same reason: a screen with no
+   * credentials still adjudicates. A turn with a client but no sessions would be a
+   * metered turn, so that pair is refused at the turn rather than silently billed.
+   */
+  sessions: FreebuffSessions | null
   /** Why there is no client, when there is none. Shown instead of an empty pane. */
   clientUnavailableReason?: string
   model?: ModelRoleConfig
@@ -284,7 +294,7 @@ const latestRunId = (db: Database): string | null =>
 export const createReviewInvestigator = (
   options: CreateReviewInvestigatorOptions,
 ): ReviewInvestigator => {
-  const { db, client } = options
+  const { db, client, sessions } = options
   const log = options.log ?? (() => {})
   const model = options.model ?? DEFAULT_INVESTIGATOR_MODEL
 
@@ -518,6 +528,18 @@ export const createReviewInvestigator = (
         return { ...empty, error: unavailableReason }
       }
 
+      // A client without a session is a *metered* call, which is the defect §20.41
+      // records: the turn is refused here rather than billed to an account that has
+      // no credits and answering 402 under the researcher's question.
+      if (sessions === null) {
+        return {
+          ...empty,
+          error:
+            'no Freebuff session is available, so this turn would be billed rather than ' +
+            'free. Reopen the screen once credentials resolve, or check §20.41.',
+        }
+      }
+
       // Checked before the workspace is resolved, because the point of a ceiling is to
       // refuse the cheap thing before doing the expensive one. A refusal is a *result*, not
       // an error thrown into a render loop — the same rule a refused read follows in
@@ -561,14 +583,31 @@ export const createReviewInvestigator = (
           ? (copyInfos.get(resolvedRunId)?.id ?? null)
           : null
 
-      const investigator = createInvestigator({
-        workspace,
-        client,
-        agent,
-        model,
-        ...(options.maxAgentSteps ? { maxAgentSteps: options.maxAgentSteps } : {}),
-        log,
-      })
+      // A model free mode does not serve is refused here, as this turn's error rather
+      // than as a throw out of a render loop: `createInvestigator` builds the agent
+      // definition, and that is where the agent/model pair is checked (§20.41).
+      let investigator
+      try {
+        investigator = createInvestigator({
+          workspace,
+          client,
+          sessions,
+          agent,
+          model,
+          ...(options.maxAgentSteps ? { maxAgentSteps: options.maxAgentSteps } : {}),
+          log,
+        })
+      } catch (error) {
+        return {
+          ...empty,
+          error:
+            error instanceof FreeModeModelError
+              ? error.message
+              : `the investigator could not be built: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+        }
+      }
 
       const startedAt = Date.now()
       const turn = await investigator.ask({ ...(signal ? { signal } : {}), prompt })

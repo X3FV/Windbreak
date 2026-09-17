@@ -112,6 +112,53 @@ describe('buildCallGraph', () => {
     expect(built.unresolved).toEqual([])
   })
 
+  test('callsOf returns every reference written in a function, resolved or not', () => {
+    // The difference between `edgesFrom` and this is the whole of `unresolved`: a libc call
+    // has no definition in the target and so no edge, and `reach/entries.ts` asks precisely
+    // that question of a name rather than of a resolved definition.
+    const built = graph(
+      [definition('main', 1, 10), definition('helper', 20, 30)],
+      [reference('helper', 5), reference('printf', 6), reference('helper', 25)],
+    )
+
+    expect(built.edgesFrom('src/main.c', 'main').map((edge) => edge.toFunction)).toEqual(['helper'])
+    expect(built.callsOf('src/main.c', 'main').map((ref) => ref.name)).toEqual([
+      'helper',
+      'printf',
+    ])
+    expect(built.callsOf('src/main.c', 'nothing')).toEqual([])
+  })
+
+  test('unresolvedNames is the deduplicated, sorted form of the resolved-out names', () => {
+    const built = graph(
+      [definition('main', 1, 10)],
+      [
+        reference('printf', 5),
+        reference('zlibVersion', 6),
+        reference('printf', 7),
+        reference('Q::poll', 8),
+      ],
+    )
+
+    expect(built.unresolved).toHaveLength(4)
+    expect(built.unresolvedNames).toEqual(['Q::poll', 'printf', 'zlibVersion'])
+  })
+
+  test('a qualified call is captured as written, which is why it never resolves', () => {
+    // The index holds `poll` with `Q` in a separate column, so `Q::poll` matches nothing — no
+    // edge, no ambiguity, and no `droppedCallersOf` entry either, because a reference that
+    // never resolved was never dropped. `reach/graph.ts` reads the tail off this list instead.
+    const built = graph(
+      [definition('main', 1, 10), definition('poll', 20, 30, 'src/q.c')],
+      [reference('Q::poll', 5)],
+    )
+
+    expect(built.edges).toEqual([])
+    expect(built.callersOf('src/q.c', 'poll')).toEqual([])
+    expect(built.droppedCallersOf('poll')).toEqual({ ambiguous: 0, unattributed: 0 })
+    expect(built.unresolvedNames).toContain('Q::poll')
+  })
+
   test('a recursive call is an edge from a function to itself', () => {
     const built = graph([definition('walk', 1, 10)], [reference('walk', 5)])
 

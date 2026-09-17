@@ -15,8 +15,8 @@ superseded blueprint it replaces.
 The CLI surface, model policy, credential resolution, and state schema exist.
 Every stage in §3.2 is implemented, individually and through `scan`, the pattern
 library closes §4.8's loop, patch-mined discovery closes §4.4.1's Phase A,
-check-to-use / race detection closes §4.4.3, and `eval` scores a fixture set
-against the runs on disk. The program model indexes **eleven languages** rather
+check-to-use / race detection closes §4.4.3, reachability from an entry point closes
+§4.4.4, and `eval` scores a fixture set against the runs on disk. The program model indexes **eleven languages** rather
 than two, which is the half of multi-language support that is about reading a
 repository; the detectors that reason about C-shaped defects are still pinned to
 C and C++, and each run says how much of the program model that left unswept.
@@ -76,7 +76,9 @@ it is not, and the row drops its least useful keys as the terminal narrows.
 The line above the input shows the conversation's budget. A chat is not a scan stage, so
 §9's governor does not bound it — instead `investigator.maxConversationCalls` (default
 120) caps **model calls in one conversation**, counted from the provider's own usage
-reports, with a hunt and an explain drawing on the same budget. It is per *conversation*:
+reports, with a hunt and an explain drawing on the same budget, while
+`investigator.maxSteps` caps one turn. Both are read from the config the checkout resolved,
+so the numbers on this line are the ones the pane enforces. It is per *conversation*:
 leaving the screen and returning starts a fresh one, and §9's target budget is what spans
 runs. A spent ceiling replaces the input with the reason and the way out rather than
 silently refusing to accept anything.
@@ -177,7 +179,9 @@ than an alternate screen that looks like a hang. It is not a spinner. See §20.2
 | `windbreak library replay` | working — confirmed-only variant hunting across targets |
 | `windbreak scan` | working — §3.2's whole chain over one target, one run, one budget |
 | `windbreak resume` | working — continues a run from its first incomplete stage |
-| `freebuff windbreak` | working — a start menu (scan / files / resume a run), with the adjudication queue as a screen under it (spec D32, §20.33) |
+| `freebuff windbreak` | working — opens the adjudication queue **as a chat session**: the agent works it through `windbreak review --json` and `--decide` (spec §20.34) |
+| `/scan` in `freebuff` | working — runs `windbreak scan` on screen, in the process, streaming the run's own log and keeping its summary (spec §20.36) |
+| `/windbreak` in `freebuff` | working — opens the queue on screen and records each decision through the pipeline's own `recordAdjudicationDecision`, with the rationale you type (spec §20.37) |
 | `windbreak eval <corpus>` | working — scores recorded runs against repo fixtures (tier 2) or drives the model stages over a function-level pair set (tier 1) |
 | `windbreak fetch <corpus>` | working — materializes a fixture list's snapshots at their pinned commits, blobless so the history the miners need survives (D22) |
 
@@ -488,6 +492,71 @@ Five things worth knowing before reading a result:
   shapes need no git; a target that is not a repository still gets swept, and the
   warning says which half was unavailable.
 
+## Reachability
+
+§4.4.4 answers the question a triager asks first and no detector can: **can an attacker get
+here?** The static core builds the call graph, inventories the functions the program can be
+entered at, walks the closure, and records one conclusion per candidate. A conclusion is one of
+four, and the difference between them is the point:
+
+| class | what it means |
+|---|---|
+| `attacker-input` | a call path exists from `main`, a fuzz entry point, or a function that reads input — the claim a triager asks for |
+| `exposed-api` | reached only from a function **nothing in the index calls**: an exported API, a callback registered by address, or dead code. For a library the caller *is* the attacker; the tool cannot tell which of the three it is, and says so |
+| `unreachable` | called by name, no entry point reaches it, and every caller set on the way in is complete |
+| `unknown` | the search could not be settled — **with the reason** |
+
+**`unreachable` is the only class that excludes anything.** A candidate it covers is recorded
+in `verdicts`-adjacent row state and excluded from the report with the reason attached, because
+a defect in code this program cannot be attacked through is the most common reason a
+technically-real report is closed as N/A. Everything else reports, and a candidate whose
+reachability was never computed — an older database, or a site with no file and line — passes:
+a run that did not look is not a run that found no path.
+
+**"No path" is never read off an incomplete graph.** Four things make the search unsettled, and
+each is said in the finding's own evidence: no entry point was identified at all (a statement
+about the parse, not the program); a call site naming the function sits outside every indexed
+callable (a global initialiser, a file recon could not read); the name is defined in several files
+and the call could have been to this one; or the call was written with a class or namespace
+qualifier (`Q::f`), which a name-only index cannot resolve to a definition. Anything downstream of
+those is unknown too — an unresolvable caller of `F` makes `F` and everything `F` calls possibly
+reachable, which is absence of evidence rather than evidence of absence.
+
+Read the line the summary prints beside the candidate counts before believing a classification:
+
+```
+reachability: 216/468 callable(s) reachable from attacker input, 126 exposed-api only,
+0 no path, 126 unknown — from 156 entry points; 101 incomplete caller set(s),
+1560 name(s) with no definition (10 written with a class or namespace qualifier)
+```
+
+Those are zlib at `d81c2d7` — the first repository the gate met that it had not seeded, and where
+the fourth unsettled case above was found: a recursive method whose only other callers wrote it
+`gzfilestream_common::attach` came back `unreachable` until the qualified tail was treated as a
+caller-set gap too. The 156 entries are 22 `main`, 51 input-source and 83 unrooted; the run settles
+216 of 468 callables by a *path*, and the rest is `exposed-api`, `unknown`, and the 1,294 of 3,735
+call sites (35%) that sit outside every indexed callable.
+
+`0 unreachable` beside a large `unknown` means the closure could not be completed, not that
+every candidate is reachable. And the last number is the one honest hole: a call through a
+function pointer names no definition, so a site reached only that way shows up as `exposed-api`
+(the address-taken function has no callers by name) rather than as `unreachable` — but the tool
+cannot rule out a pointer call to a function that *is* called by name elsewhere, and that count
+is how you see how large that window is.
+
+**The inventory is inspectable.** Every entry point is stored with the reason it counts
+(`entry_points`, one row per target), and the evidence bundle states the entry and the call path
+it took:
+
+```
+Reachability: an attacker can reach this — a call path exists from main (src/main.c), 2 calls
+  deep. Path: main (src/main.c) -> parse_header (src/handler.c:12) -> copy_name (src/handler.c:41)
+```
+
+What it is **not**: a claim about exploitability. It is graph reachability — a guard that always
+holds, a length check that makes the copy safe, or a value an attacker cannot actually choose
+are all outside it, which is what §5.2's verification and `confirm` are for.
+
 ## Candidate pipeline
 
 `windbreak pipeline` is the first stage that sends target text to a model, so it
@@ -641,7 +710,160 @@ stays reviewable.
 produced, so the figure you retire a pattern on is current rather than a
 snapshot from sweep time.
 
-## The start menu, and the adjudication screen
+## Running a scan on screen: `/scan`
+
+WindBreak's TUI is Freebuff's TUI. There is no second renderer, so the scan lives where
+the chat does: type `/scan` and the run happens **in front of you**, in this process,
+streaming the log the batch command pipes to `console.log` (spec §20.36).
+
+```
+╭─────────────────────────────── WindBreak scan ───────────────────────────────╮
+│ repository /home/researcher/project-a
+│ database   /home/researcher/project-a/.windbreak/state.db
+│ config     /home/researcher/project-a/.windbreak/config.json
+│ budget     3600s — an overrun is decided here, not prompted
+│            (this screen owns stdin, so a prompt would hang the run)
+│ ─────────────────────────────────────────────────────────────────────────────
+│ [scan] ingestion (§4.1)
+│ [recon] inventory /home/researcher/project-a
+│ [recon] sandboxed build
+│ …
+│ ↑↓ scroll · esc is refused while it runs · the run keeps going
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+The header is the point of the view, not decoration. Those four facts are the ones a
+researcher gets wrong — the wrong checkout, state in a database nothing reads, a config
+that is not the one the commands use, and a budget that was approved without them — and
+each is cheap to state and expensive to discover an hour into a run. The budget line is
+split over two rows so the second half is not the part a narrow terminal cuts: on this
+surface an overrun is **approved, not prompted**, because a prompt would be waiting on
+stdin while the renderer owns it.
+
+Four behaviours worth knowing:
+
+- **The subject is the checkout you are in; the database is the one that checkout's config
+  names.** `windbreak scan` run bare follows the configured target instead, because a
+  command cannot say which repository it means and the chat surface can. When the config
+  points somewhere else, the view says so rather than letting you infer it from results
+  about the wrong tree.
+- **The config is looked for at the repository root**, not the working directory, so
+  starting the chat in `src/deep` does not silently ignore a config (and the database it
+  names) one level up.
+- **A finished scan keeps its summary** — stages, counts, the language and call-graph
+  coverage lines, and every warning, because those are a run's only record of whether
+  `0 candidates` means clean or unswept. The **log is read at its newest row** while the run
+  is going and the **summary at its first row** when it lands: one is moving, the other is
+  read in order. If a run prints more than the log's 2000-line window, the view says how
+  many lines it dropped instead of letting a shorter log read as a quieter run.
+- **`esc` is refused while the scan is running**, and says why. `launchScan` has no cancel,
+  so leaving would hand the terminal back to the chat while the run kept writing to a
+  callback nothing renders — losing the summary and the warnings, which is the one thing
+  the view exists to keep. `r` continues an incomplete run from its first unfinished stage,
+  and leaving after it lands puts one line in the transcript: the run's id, its status, its
+  candidate and escalated counts, and the command that works the queue.
+
+The same summary text is printed by `windbreak scan` — literally the same function
+(`scan/summary.ts`), so the two surfaces cannot drift into two accounts of one run.
+
+## Working the queue on screen: `/windbreak`
+
+`/windbreak` — with no arguments — opens the adjudication queue. It is the other half of
+`/scan`: the scan produces the disagreements, this decides them, and both read the same
+database through the same resolver, so a run you watched happen is a queue you can work
+without leaving the chat (spec §20.37).
+
+```
+╭─────────────────────────────── WindBreak queue ───────────────────────────────╮
+│ repository  /home/researcher/project-a
+│ database    /home/researcher/project-a/.windbreak/state.db
+│ queue       1 pending · 1 of 2 decided
+│ showing     pending only — `a` also shows the decided ones
+│ ─────────────────────────────────────────────────────────────────────────────
+│ ❯ 01JQ8V2M4P7XA… src/handler.c:41              CWE-120     semgrep
+│ ─────────────────────────────────────────────────────────────────────────────
+│ candidate   01JQ8V2M4P7XA9K3TZ6RBW0H1E
+│ run         run-7 · target /home/researcher/project-a · @ 9f1c2ab77de4 · state escalated
+│ file        src/handler.c:41
+│ cwe         CWE-120
+│ source      semgrep · wb-c-unbounded-string-op
+│ ── evidence ──────────────────────────────────────────────────────────────────
+│ engine      semgrep · wb-c-unbounded-string-op
+│ detector    unbounded copy into a fixed-size buffer
+│ at          src/handler.c:41–41
+│ snippet:
+│     strcpy(buf, line);
+│ …
+│ ── proposer ──────────────────────────────────────────────────────────────────
+│ model       openai/gpt-5 via openai
+│ said        real
+│ because     the destination is a 64-byte stack array …
+│ requires    line is read from the socket without a length cap
+│ ── refuter ───────────────────────────────────────────────────────────────────
+│ model       z-ai/glm-5.3 via z-ai
+│ said        benign
+│ because     callers validate the length upstream
+│   ↓ 22 more row(s)
+│ ↑↓ select · r real · b benign · a show decided · esc back to chat
+╰──────────────────────────────────────────────────────────────────────────────╯
+```
+
+**Why a view when there is already a prompt that works the queue.** The old path was:
+ask the agent, the agent runs `windbreak review --json`, the agent runs
+`windbreak review --decide --candidate <id> --decision real --rationale "…"`. That
+records a decision whose rationale is a *model's* sentence about your reasoning, and §5.3
+makes the researcher's disagreement the tiebreak. Here `r` and `b` are the decision, `esc`
+abandons it (nothing is written until the rationale is submitted), and the write goes
+through the pipeline's own `recordAdjudicationDecision` — so the batch command and this
+surface cannot disagree about what "resolved" means, because it is the same function.
+
+```
+│ real — the candidate joins verification as confirmed
+│ > rationale for 01JQ8V2M4P7XA… (empty is recorded as none)
+│  no cap before the copy▍
+│ type the rationale · enter records the decision · esc abandons it
+```
+
+The line above the input is not decoration: `real` joins verification as confirmed and
+`benign` **drops** the candidate, and that consequence is stated *before* the key that
+takes it, not in a report afterwards. An empty rationale is allowed and recorded as none —
+the view will not invent a policy §5.3 does not have — and a second decision on a row you
+already decided says **"This replaces an earlier benign"** rather than overwriting it
+quietly.
+
+Four facts the view is built to keep straight:
+
+- **A missing database is not an empty queue.** `openReviewSession` opens an absent
+database on purpose and creates nothing; the pane then says *no state database exists at
+<path>* instead of *no disagreements*, because only one of those is good news (§18). A
+queue whose disagreements have all been decided says so and points at `a`, which lists
+them with the decision and the rationale each one carries.
+- **Both model answers are shown in full**, each with the model and provider that gave it,
+plus the §5.1 injection signals — an attempt to steer a model is evidence about the finding.
+An unreadable evidence bundle or a missing verdict record is *stated*, never rendered as
+"no evidence" or "no argument".
+- **The database is the one the config names**, resolved by the same code `/scan` uses. A
+config that cannot be read is a refusal that names the file rather than a fall back to the
+conventional path — which is also the default, so a fall back would be indistinguishable
+from success and would show you an empty queue for state that is somewhere else.
+- **Leaving keeps one line in the transcript**: `WindBreak queue: 0 pending · 2 of 2
+decided · decided here: real ×1, benign ×1`. A decision made by keystroke is still a
+decision somebody has to be able to read back.
+
+`/windbreak` **with arguments** still sends the brief to the agent (`/windbreak review
+--run <id>`), which is how the rest of the surface is reached. The view answers *what is
+queued and what did I decide*; it does not replace the commands, and it cannot run a scan
+or verify a candidate.
+
+## The start menu, and the adjudication screen (superseded)
+
+> **This section describes a screen that no longer exists.** The custom OpenTUI screen was
+> retired when WindBreak moved onto Freebuff's chat surface (the 41-file
+> `cli/src/windbreak/` app is gone; see `cli/src/utils/windbreak-launch.ts`). Today the scan
+> is `/scan` above, the queue is `/windbreak` — one view each, inside Freebuff's own TUI —
+> and `windbreak-tui` opens the chat. What follows is kept for the design decisions it
+> records — the start menu's reasoning, the pane layout, the palette — none of which are
+> reachable from the code any more.
 
 Typing `windbreak-tui` — or `freebuff windbreak`, where the freebuff on PATH carries the
 screen — opens a **start menu** for the checkout it was run in (spec §20.33):
@@ -1019,6 +1241,66 @@ Exit codes, so this can gate CI: `0` only on a pass. A failed gate exits 1, and 
 does a run that **could not be evaluated** — a pipeline that was never measured
 must not report success.
 
+### Measuring the rule set: `eval --rules`
+
+§11's other two tiers need a populated fixture list or a provider call. This one needs neither: it
+scores the committed rule set (`rules/security.yaml`) over a corpus of real vulnerable/patched function
+pairs — one engine invocation, no model call, no database.
+
+```bash
+windbreak eval corpus/cve-fixes.json --rules        # score the committed rule set
+windbreak eval corpus/cve-fixes.json --rules --json # for a harness
+```
+
+The corpus ships at [`corpus/cve-fixes.json`](./corpus/cve-fixes.json): 267 pairs mined from commits
+that fixed a real CVE in curl, libarchive and libxml2, each pair one function at the fix commit's parent
+and the same function at the fix. Rebuild it against your own checkouts:
+
+```bash
+windbreak corpus build \
+  --source curl=/path/to/curl \
+  --source libarchive=/path/to/libarchive \
+  --out corpus/cve-fixes.json
+```
+
+What it returns — the first yield figure this project has ever had for its own detectors:
+
+```
+instrument         pairs  tp   fn  fp   tn  unscored  sensitivity  false alarm  precision  discriminated  fn/fa
+─────────────────  ─────  ──  ───  ──  ───  ────────  ───────────  ───────────  ─────────  ─────────────  ─────
+detector rule set    267  28  239  25  242         0        0.105        0.094      0.528          0.011  9.56x
+```
+
+**Read `discriminated`, not `sensitivity`.** It counts pairs where a rule fired on the half containing
+the defect *and* not on the half that fixes it. A rule set that fires on everything scores perfectly on
+sensitivity and zero there. This one scores 0.011: of 267 real CVE fixes, three had a rule that could
+tell the bug from its fix. Eighteen firings on the vulnerable half against sixteen on the fixed one is
+not a detector that is nearly right — it is a detector whose output barely depends on which half it is
+looking at. Three rules fired at all; four — command injection, realloc aliasing, insecure temp file,
+weak randomness — never did.
+
+Three things keep that honest, all §18's rule applied to a score:
+
+- **A half the engine did not report on is `unscored`, never a clear.** Treating a missing result as
+  "no findings" would shrink the denominator by exactly the halves the engine choked on, so a failure
+  would *improve* the score.
+- **A failed run marks every half unscoreable** — engine absent, unparseable output,
+  `executionSuccessful: false`, or a non-zero exit with nothing read.
+- **If nothing got a verdict the row is `—`, not `0`**, with the reason printed beside it.
+
+And three things it does not tell you:
+
+- **It is not the pipeline.** Recon, the call graph, patch mining, triage, verification and reachability
+  did not run, and nothing about them follows from this number.
+- **The corpus is the disclosed subset, and it spans the whole weakness space.** The rules test seven
+  shapes, so a null dereference or an authorization error is real ground truth here that no rule can
+  reach — which is why the per-rule table is printed beside the rate rather than folded into it.
+- **It is coupled to the engine version** (these figures are `semgrep` 1.177.0) and **it does not run in
+  CI**, because it needs `semgrep` on PATH. The corpus *data* is tested; the measurement is a command you
+  run.
+
+Full detail, including the four kinds of drop and why each exists, is in spec §20.40.
+
 ### Fetching the snapshots (D22)
 
 D22 splits the corpus: the list is private and lives in-repo, the snapshots are
@@ -1257,12 +1539,18 @@ disagreed. Resolving both from the same repository root is what closes that; the
 comment already claimed it, "resolved here, once … so the file pane and the models cannot be
 looking at two different checkout".
 
-**The chat pane's limits are the one thing still read only from a named `--config`**, and
-that asymmetry is on purpose. `target.db` is a path; the rest of the document selects models
-and budgets, and the ceiling on model calls is a *spend* limit. Reading it from the checkout —
-a directory that may be untrusted — would let a scanned repository raise the ceiling on the
-researcher's calls, so naming the file is how you raise it. The scan the screen can start
-still reads the discovered config, as every batch command does.
+**The chat pane's limits were the one thing this screen read only from a named `--config`**, and
+that asymmetry was on purpose. `target.db` is a path; the ceiling on model calls is a *spend*
+limit, and reading it from the checkout — a directory that may be untrusted — would let a scanned
+repository raise the ceiling on the researcher's calls, so naming the file was how you raised it.
+
+**§20.38 reversed that for its own pane.** `/windbreak` resolves its subject the way §20.36's scan
+view does, so both ceilings (`investigator.maxConversationCalls` and `investigator.maxSteps`) come
+from the checkout's own config and are named on the pane's budget line. The trade-off is recorded
+rather than dropped: a foreign checkout can now raise or lower the researcher's ceiling. It is the
+same trade-off §20.31 already made for the database path, in the same direction and for the same
+reason — the screen is about the checkout you are standing in, so the checkout's own settings are
+the ones it reads, with `$WINDBREAK_CONFIG` honoured ahead of them.
 
 The config is looked for at the **repository root** rather than the working directory, which
 is the one place this deliberately differs from `discoverConfigPath`: opened from
@@ -1293,7 +1581,14 @@ Verification uses two different vendors on purpose: the Proposer runs on
 DeepSeek V4.1 Flash and the Refuter on GLM 5.3 Flash. A shared blind spot
 cannot pass both gates. `windbreak config validate` refuses a configuration
 where both resolve to the same provider. Both models are unmetered at full
-access, so a scan does not consume the researcher's daily sessions.
+access in Freebuff's own catalog, which is where they come from — but a scan is
+**not** free, and the distinction cost a live run to learn (§20.41). Windbreak
+builds its own client and sends its own agent definitions, and Freebuff's free
+mode is scoped to the freebuff CLI as a caller: a call from anywhere else is
+refused with `403 free_mode_cli_required` no matter how well formed it is. So a
+scan bills the account's credits, and the free tier is not an option for a batch
+run. `WINDBREAK_FREE_MODE=1` asks for the free path anyway; it is off by default
+for that reason.
 
 §20.29's investigator has its own row, `models.investigator`, and is deliberately
 **not** one of the verification roles. It is configured and recorded like any other
@@ -1303,9 +1598,16 @@ property rather than a convention, and it is what §5.3's escalation signal rest
 
 The investigator's own limiter is not a model choice but a spend one:
 `investigator.maxSteps` caps one turn and `investigator.maxConversationCalls` caps a whole
-conversation in model calls. `windbreak review --config <file>` reads the same file the
-batch commands do, so the pane's ceiling is configured where everything else is; without
-the flag the defaults above apply.
+conversation in model calls. `/windbreak` reads both from the config its subject resolved —
+`$WINDBREAK_CONFIG`, else the checkout's `.windbreak/config.json` — so the pane's ceiling is
+configured where everything else is, and the budget line under the input names the two numbers
+it is actually enforcing.
+
+One thing to know if you set `maxSteps`: it is called `maxAgentSteps` on the engine's side, and
+for one release the bridge handed the engine the wrong name — accepted, ignored, and the agent ran
+on its own default of sixteen, silently (§20.38.4). The mapping is a typed function now, so a
+rename in the engine is a compile error rather than a setting that quietly stops applying. A small
+`maxSteps` is worth re-checking against a turn if you are upgrading from that release.
 
 ### Running the model stages for real
 
@@ -1355,10 +1657,13 @@ The schema is version-gated (`PRAGMA user_version`). A database written by a
 different version is refused loudly rather than misread, so after an upgrade
 point `--db` at a new file or delete the old one.
 
-The current version is **6**, which added `investigator_turns` for §20.29's
-transcript. That table is not `verdicts` and is not read by verification: an
-investigator answer is recorded so a researcher can read it, never counted as a
-vote.
+The current version is **9**. Version 6 added `investigator_turns` for §20.29's transcript — a
+table that is not `verdicts` and is not read by verification, because an investigator answer is
+recorded so a researcher can read it, never counted as a vote. Version 9 added §4.4.4's two:
+`entry_points`, the inventory a reachability conclusion is measured from, one row per callable
+with the reason it counts; and `candidates.reachability_json`, where **NULL means the analysis
+never ran** rather than `unreachable` — the distinction that keeps a pre-§4.4.4 database from
+reporting as though every site had been ruled out.
 
 ## Conventions
 

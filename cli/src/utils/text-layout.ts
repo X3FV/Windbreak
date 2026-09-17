@@ -57,11 +57,18 @@ function measureLines(text: string, cols: number): number {
   return lines
 }
 
-export function getLastNVisualLines(text: string, cols: number, n: number): { lines: string[]; hasMore: boolean } {
-  if (n <= 0 || cols <= 0) return { lines: [], hasMore: false }
-  const lines: string[] = []
-  if (!text) return { lines, hasMore: false }
+/**
+ * Wrap `text` into the visual rows a terminal `cols` columns wide would print it as.
+ *
+ * Rows rather than logical lines, and measured with `string-width` so a wide glyph costs two
+ * columns: a view that counts what it is not showing (`↑ 3 more`) is only telling the truth
+ * if its wrap agrees with the terminal's. `getLastNVisualLines` is this function plus a
+ * suffix, so the tail of a stream and the whole of a report cannot wrap differently.
+ */
+export function wrapToVisualLines(text: string, cols: number): string[] {
+  if (cols <= 0 || !text) return []
 
+  const lines: string[] = []
   const tokens = text.split(/(\s+)/)
   let current = ''
   let currentWidth = 0
@@ -105,9 +112,19 @@ export function getLastNVisualLines(text: string, cols: number, n: number): { li
   }
 
   if (current.length > 0 || lines.length === 0) pushLine()
-  const hasMore = lines.length > n
-  const lastLines = lines.slice(-n)
-  return { lines: lastLines, hasMore }
+
+  return lines
+}
+
+export function getLastNVisualLines(text: string, cols: number, n: number): { lines: string[]; hasMore: boolean } {
+  if (n <= 0 || cols <= 0) return { lines: [], hasMore: false }
+  // An empty string has no rows rather than one blank row: callers use this to decide
+  // whether there is anything to show at all.
+  if (!text) return { lines: [], hasMore: false }
+
+  const lines = wrapToVisualLines(text, cols)
+
+  return { lines: lines.slice(-n), hasMore: lines.length > n }
 }
 
 export function computeInputLayoutMetrics({

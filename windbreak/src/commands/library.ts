@@ -130,6 +130,9 @@ export const registerLibraryCommand = (program: Command): void => {
     }) => {
       const databasePath = options.db ?? defaultDbPath()
       const database = openStateDatabase(databasePath)
+      // Declared outside the `try` because the release happens in its `finally`, and a
+      // `let` in a try block is not in scope there.
+      let closeSessions: (() => Promise<void>) | undefined
 
       try {
         const candidate = readCandidate(database, options.candidate)
@@ -169,9 +172,11 @@ export const registerLibraryCommand = (program: Command): void => {
           }
 
           try {
-            const { client } = await createWindbreakClient()
+            const windbreak = await createWindbreakClient()
+            closeSessions = windbreak.close
             invoker = createSdkModelInvoker({
-              client,
+              client: windbreak.client,
+              sessions: windbreak.sessions,
               models: loaded.config.models,
               log: options.json ? () => {} : (line) => console.log(line),
             })
@@ -250,6 +255,7 @@ export const registerLibraryCommand = (program: Command): void => {
         )
         for (const warning of result.warnings) console.log(`warning: ${warning}`)
       } finally {
+        await closeSessions?.()
         database.close()
       }
     })

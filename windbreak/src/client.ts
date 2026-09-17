@@ -1,16 +1,59 @@
+import { FREE_MODE_ENV_VAR, createFreebuffSessions, createMeteredSessions } from './freebuff-session'
 import { API_KEY_ENV_VAR, getAuthTokenDetails } from './auth'
 
+/**
+ * The session builders a **host** needs, re-exported from this entry point.
+ *
+ * A host that supplies its own `CodebuffClient` (the CLI, in §20.41.5's hosted case) has to
+ * supply the billing alongside it, and it cannot import `freebuff-session.ts` directly — this
+ * is the package's public entry point. `createHostedSessions` is the one it wants: the
+ * sessions *it* already holds, read rather than opened. `createMeteredSessions` is the
+ * honest answer for a host with no Freebuff session at all, so that the alternative to a
+ * free session is a named decision rather than a default.
+ */
+export { createHostedSessions, createMeteredSessions, FREE_COST_MODE } from './freebuff-session'
+export type {
+  FreebuffSessionLease,
+  FreebuffSessions,
+  HostedFreebuffSession,
+} from './freebuff-session'
+
 import type { AuthTokenSource } from './auth'
+import type { FreebuffSessions } from './freebuff-session'
 import type { CodebuffClient } from '@codebuff/sdk'
 
 export interface WindbreakClient {
   client: CodebuffClient
   authSource: AuthTokenSource
+  /**
+   * The Freebuff session every model call is billed to (spec §20.41). One per
+   * model, opened on first use and reused across the run.
+   */
+  sessions: FreebuffSessions
+  /**
+   * Release the sessions this process admitted, and nothing else. A session
+   * another process held is left running, because ending it would end somebody's
+   * chat — see `freebuff-session.ts`.
+   */
+  close: () => Promise<void>
 }
 
 export interface CreateWindbreakClientOptions {
   cwd?: string
   env?: NodeJS.ProcessEnv
+  /** Where session admissions are reported. */
+  log?: (line: string) => void
+  /**
+   * Use the Freebuff free path. Off by default, and settable with
+   * `WINDBREAK_FREE_MODE=1` (§20.41.6).
+   *
+   * Off because the server refuses it: free mode answers any client that is not the
+   * freebuff CLI itself with `403 free_mode_cli_required`, so a run that opts in here
+   * fails at every model call. It stays available for the one caller it is for —
+   * windbreak hosted *inside* that CLI — and for measuring the refusal, not because a
+   * batch run can use it.
+   */
+  freeMode?: boolean
 }
 
 export class MissingCredentialsError extends Error {
@@ -63,6 +106,10 @@ export class SdkEnvironmentError extends Error {
  * resolves it — `credentials.json` first, `CODEBUFF_API_KEY` second, so the
  * same code path works headless in CI.
  *
+ * **The client comes with its sessions.** A `CodebuffClient` on its own makes
+ * metered calls; the free tier is a session, and the session is opened here so
+ * that no caller has to remember it. §20.41 records what forgetting it cost.
+ *
  * The SDK is imported lazily: the CLI's non-model commands (`auth status`,
  * `config validate`, `db init`) must not pay for loading it, and it must not
  * break when the SDK has not been built.
@@ -93,5 +140,74 @@ export const createWindbreakClient = async (
     cwd: options.cwd ?? process.cwd(),
   })
 
-  return { client, authSource: source }
+  // Built before the SDK is reached on purpose: a missing session is a diagnosis worth
+  // having whether or not the SDK loaded.
+  const env = options.env ?? process.env
+  const freeMode = options.freeMode ?? env[FREE_MODE_ENV_VAR] === '1'
+
+  const sessions = freeMode
+    ? createFreebuffSessions({
+        token,
+        ...(options.env ? { env: options.env } : {}),
+        ...(options.log ? { log: options.log } : {}),
+      })
+    : createMeteredSessions()
+
+  options.log?.(
+    freeMode
+      ? `model routing: freebuff free mode (${FREE_MODE_ENV_VAR}=1) — the server refuses ` +
+          'this for any client but the freebuff CLI'
+      : 'model routing: metered (credits), costMode normal',
+  )
+
+  return {
+    client,
+    authSource: source,
+    sessions,
+    close: () => sessions.release(),
+  }
+}
+
+/**
+ * A model transport the caller already owns (spec §20.41).
+ *
+ * The batch stages build their own client, which is right for a command and wrong for a
+ * host. Freebuff's free mode is admitted only to the freebuff CLI *as a caller*, so a
+ * caller that **is** that CLI has to be able to run a scan on the client and the session it
+ * already holds rather than on a second pair the scan invents for itself. This is how such
+ * a caller supplies its own.
+ *
+ * **Teardown stays with the owner, and that is not a detail.** An injected host is never
+ * closed by the stage that borrows it: the session belongs to whoever handed it over, and a
+ * scan releasing it would end a chat it did not open (§20.41.3). There is deliberately no
+ * `close` here for the stage to call — a host that wants to release its own session does
+ * that where the session was opened.
+ */
+export interface WindbreakModelHost {
+  client: CodebuffClient
+  sessions: FreebuffSessions
+}
+
+export interface ResolvedModelHost {
+  host: WindbreakModelHost
+  /** Release the sessions this process opened. **Absent when the host was injected.** */
+  close?: () => Promise<void>
+}
+
+/**
+ * The host a stage runs on: the caller's, or one built from the environment.
+ *
+ * The `close` in the result is what makes the difference observable downstream — a stage
+ * that receives none has nothing to release, because it borrowed rather than opened.
+ */
+export const resolveModelHost = async (
+  injected?: WindbreakModelHost,
+): Promise<ResolvedModelHost> => {
+  if (injected) return { host: injected }
+
+  const owned = await createWindbreakClient()
+  return {
+    host: { client: owned.client, sessions: owned.sessions },
+    close: owned.close,
+  }
 }

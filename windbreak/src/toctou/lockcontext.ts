@@ -35,7 +35,7 @@
 import { aliases } from './alias'
 
 import type { Bindings } from './alias'
-import type { CallEdge } from './callgraph'
+import type { CallEdge } from '../interproc/callgraph'
 import type { AtomicEvent, CallerLockContext } from './types'
 
 /** A half-open span of lines during which a lock is held. `from` and `to` inclusive. */

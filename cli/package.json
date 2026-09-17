@@ -34,6 +34,7 @@
   },
   "dependencies": {
     "@codebuff/sdk": "workspace:*",
+    "@codebuff/windbreak": "workspace:*",
     "@gravity-ai/api": "^0.1.2",
     "@opentui/core": "0.3.4",
     "@opentui/react": "0.3.4",

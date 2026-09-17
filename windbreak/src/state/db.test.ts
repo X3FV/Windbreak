@@ -22,6 +22,10 @@ const EXPECTED_TABLES = [
   // stage can say how often it was unable to run as well as what it reproduced.
   'confirmations',
   'dependencies',
+  // §4.4.4's inventory: the callables the index can be entered at, each with the reason
+  // it counts. Reachability is only as honest as this list, so it is a table rather than
+  // a value recomputed at report time.
+  'entry_points',
   'findings',
   'investigator_turns',
   'ledger',

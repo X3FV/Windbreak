@@ -4445,9 +4445,1181 @@ above the pre-§20.35 baseline is the whole of `src/confirm/` plus the tier's ow
   and nothing in the policy type says "this call is sanitized".
 - **Only clang is exercised, and only one machine's toolchain.** The flags are pinned against
   clang 22 with binutils `addr2line`; `-gdwarf-4` is a workaround for that pairing, and a host with
-  `llvm-symbolizer` would not need it. Nothing detects the toolchain and adapts — the flags are
-  constants chosen by measurement on one host.
+  `llvm-symbolizer` would not need it. Nothing detects the toolchain and adapts —the flags are constants chosen by measurement on one host.
 
 ---
 
-*This document is the plan, and the implementation has caught up to it. It was written to be worked through before implementation; where a section's prose and §20 disagree, §20 describes the code that exists. Claims that later work overtook are marked in place (`*built since; see §X*`) rather than deleted, so a reader can tell a superseded statement from an oversight. The scaffold (§20.4), the sandbox + build step (§20.6), recon (§20.7), OSV correlation (§20.8), the baseline engines stage (§20.9), the candidate pipeline (§20.10), reporting (§20.11), the pattern library (§20.12), the `scan` orchestrator (§20.13), the adjudication screen (§20.14) — with its mouse and scrolling behaviour (§20.15) and its layout and palette (§20.16) — are in place and verified, as is D16's deferral (§20.17) with the request/services handoff seam it required (§20.20), the `eval` scoring core (§20.18), Tier 1's function-level corpus (§20.19), §4.4.1's patch-mined discovery (§20.21) — the MVP feature D5 named and the only §3.2 capability that had been missing — §4.4.3's check-to-use / race module (§20.22), the flagship capability, with the one interpretation §4.4.3 left open recorded against its own claim rather than papered over, and §4.4.3's CWE-364 signal-handler machine (§20.23) — the one race family those four FSMs cannot express, and the one whose shapes MITRE enumerates itself. §6's C/C++ scope was then widened for the program model alone (§20.24), which found a recall hole in the C++ index that had been there since §20.7 and pinned the C-shaped sweeps to the languages whose tables they actually are, so that a Python repository reports how much of itself went unswept instead of looking clean — that number now printed as its own line beside the candidate counts rather than only as a warning (§20.24.5). §20.24.7 then makes the next language affordable: the single `DETECTOR_LANGUAGES` constant became a per-detector capability matrix, so a language is swept by the detectors whose tables it has — and one only some of them cover is reported as *partly swept* with the missing detectors named, rather than rounded to swept or unswept. The shipped matrix is still C and C++ everywhere, so detection is unchanged; what changed is that adding a language is now one entry on one list, and the report says which detectors skipped a language rather than only how many callables went unread. D22's corpus is now whole (§20.25): the private list shipped with §20.18 and `fetch` materializes its snapshots at the pinned revisions, blobless so that the two miners still have a history to mine. The model path has then been driven **live** for the first time (§20.26) — a complete scan, `exit 0`, 2 triaged, 1 cross-model-verified, 1 CWE-120 finding written — which is how three defects in `pipeline/invoke.ts` were found: a tool list that removed the only channel `structured_output` reads, an instruction telling the model not to use the tool the runtime requires, and a step ceiling that made the runtime's own retry unreachable. All three were invisible to the fake-invoker suite by construction. That run also left a requirement no section wanted to own — eight exported environment values before a model call may even be attempted — and §20.27 removes it, with the note that the first attempt failed because the fix imported the very module whose snapshot it had to precede. §20.28 then revisits §20.14.1's first honesty rule — a missing database used to be refused with a non-zero code, and now opens the screen with the path marked *not found*, because the screen has room to name the state and the refusal did not. §20.29 is the one section written as a **plan rather than a record** — an investigator that can read and execute in the target, inside the adjudication screen — and it is marked as such where it sits, with the two invariants it touches named rather than discovered later; **its first four slices are now built** (§20.29.7): a mediated workspace that confines every read to the target and runs every command in the sandbox, five owned custom tools with §5.1's neutralization extracted rather than reimplemented, an agent whose prose output cannot be read as a verdict, a recorded transcript in a table of its own (`investigator_turns`, schema v6) that `runVerification` does not query, and a `propose_candidate` channel whose candidates enter §4.5 at `state: 'new'` stamped `investigator` — with the "not an engine match" claim §20.29.4 requires actually made in the prompt's provenance line, the writeup, the SARIF result, and a `modelProposed` funnel column. The role needed a distinction rather than a union member: the investigator is configurable and recordable while staying out of `ModelRole`, which is what the verdict path accepts, and that containment is asserted at compile time. Two live runs found three defects the fake-client suite could not — a prompt that told the model to report in prose instead of proposing, a turn that reported `ok: true` with no answer at all, and a step ceiling measured too low. **Slice 5 puts it in the screen** — `c` in the adjudication screen opens a chat in the decision card's slot (*superseded: §20.32 moves it to the body, with the queue kept as a rail*), `/hunt` for the target and a plain question for the selected row, with every turn recorded and the screen still constructing no client of its own — so **D32's row is now marked false at the point of the claim**, exactly as §20.29.3 said it would be. **Slice 6 closes the section** — a per-conversation ceiling in model calls, counted from the provider's own usage reports with a floor of one per turn, one budget shared by a hunt and an explain, a `windbreak.config` row the screen actually reads, and `esc` stopping a turn in flight and reporting it as `cancelled` rather than `failed` — which is the last item §20.29.6 left open and the thing that makes the pane safe to leave open. §20.29.8 then gives the cold start a face: the renderer is built first, a small loading view names what is being waited for and the database path, and only then is the bridge constructed — with the two gates that make a frame actually reach the terminal (a `flushSync` commit and a bounded `renderer.idle()` draw) found by running it, and asserted on captured frames rather than on call order. §20.30 then puts the code beside the queue: `f` lists the target's file inventory — what recon **indexed**, not a directory walk, so the files on screen are the same set the findings are about — in the detail pane's slot, with the target and pinned commit in its header, the dropped rows printed when the listing is capped, and its three empty states (no target, an empty inventory, a populated tree) said three different ways rather than collapsed into one empty pane. Its second slice is where the editing lands: a writable *copy* of the target that models may patch and rebuild, reached by `tab` from the same pane, while the target itself stays a read-only bind — **the artifact a finding cites has to remain the artifact a reader can re-examine**, and that is the one property security research can least afford to lose. The copy, the three write tools, the two agents' separate tool lists, and schema v7's `working_copies` are built and verified (§20.30.1 records what is still open). §20.31 then answers the question that entry left open — `windbreak` in a checkout nothing has scanned now opens on **that repository**, because the screen resolves the git root (falling back to the working directory) and the pane falls back to a filesystem walk when the database has no target to show; the walk reuses recon's own `collectInventory`, so both sources share one answer to what a source file is, and it is **labelled as unscanned** in a warned header line rather than passed off as the inventory the findings are about, which is the rule §20.30 chose the inventory for in the first place. The models read the same directory through a fallback root that a run's own target always overrides, and the scratch goes to the system temp dir because an unscanned checkout has no `.windbreak` and writing one would be a change to a tree the screen is only reading. What such a checkout cannot do is now said outright rather than discovered: there is no run, so turns are not recorded, candidates cannot be created, and the engineer is refused — writing being recorded is what §20.30's engineer *is*, and attribution needs a run. §20.32 then follows where §20.31's fallback left the screen usable: `c` gives the chat the body instead of a card-sized slot, the queue stays as a narrow rail that is dropped rather than squeeze the prose, and — the part that was a real defect rather than a preference — the transcript **wraps** where it used to truncate, so a model's paragraph is read instead of arriving as its first clause and an ellipsis. Wrapping happens where the lines are built so the pane's row-based scroll counts the rows that exist, and the hint row is the chat's own because the browse keys are inert while the input owns the letters. §20.33 then makes the command a **passage rather than a destination**: a bare `windbreak` opens a start menu — run a scan, browse the files, resume a previous run — instead of §5.3's queue, with the repository and the database named above the rows before anything is chosen. The scan runs **in this process** (the interactive budget decider reads stdin, which the renderer owns, so `yes: true` is correctness rather than a default), streams the run's own log, and reads its stage from the run's own announcements; a continuation takes its checkout from the run rather than the working directory, exactly as the batch `resume` does. The queue becomes a screen *under* the menu reached through a run or the whole-database row, `--run` still skips the menu so the batch contract is unchanged, and a finished scan keeps its summary — a deliberate departure from the interview's "land on the dashboard", because the summary is a run's only record of its warnings and of whether `0 candidates` means clean or unswept. §20.35 then reverses the plan's own last decision: D21 kept v0.1 out of the fuzzing business and §16 put step 11 last as *out of MVP scope*, and the interface §12.4 preserved is now the thing it was preserved for — `windbreak confirm` generates a libFuzzer target for a finding, compiles and runs it **inside the sandbox** with the checkout bound read-only, and records what manifested in a table of its own (schema v8). The gates are the design: a class is confirmable only if one run can settle it (twelve do, eight are refused with their reasons, and races are refused because *a single run cannot disprove, so it cannot confirm*), and a crash counts only when the sanitizer's own category matches the class **and** the report lands in the finding's own file or function — because the symbol index stores no parameter list, so a generated target calls a callee whose signature it cannot know, and a mismatched call segfaults just as convincingly as a real defect. Four defects were found by running it and none by reading it: `-O1` deletes the very store a defect consists of, C23 makes the empty parameter list mean `void`, ASan cannot symbolize without `llvm-symbolizer`, and `addr2line` cannot read clang 22's default DWARF. The result is a fourth tier — `statically-verified` < `dynamically-confirmed` < `human-reproduced` — that never demotes, because a bounded run that finds nothing is silence rather than disproof, and `build-failed` is kept apart from `not-reproduced` so a broken machine cannot read as a clean finding. §20.34 then takes the one failure that was arriving as *evidence about the target* and says it as a fact about the account: a depleted balance or a rejected credential is classified once (`provider-failure.ts`, two kinds with two different fixes, from the two message shapes the live backend actually produces), carried on the turn that met it, held by the bridge until a call goes through rather than for one turn, reaching the composer's out-of-credits takeover — which now reads the refusal that carries no status as well as a 402 — and stated **once on `ScanResult`** — above the stage table in both batch summaries — instead of as one true `warning:` per candidate among a hundred identical ones. **§7.3's command list is implemented**, `fetch` included: `prepare` (§6.3) and `eval` (§11, both tiers) were the last two placeholders, and `fetch` and `confirm` (D21's reversal, §20.35) are the two commands added since that list was first written. §17's remaining open items, §20.5, and the open items in §20.6.3–20.6.4, §20.7.2–20.7.5, §20.8.2, §20.9.3, §20.10.3, §20.11.3, §20.12.6, §20.13.6, §20.14.5, §20.15.4, §20.16.6, §20.17.4, §20.18.9, §20.19.8, §20.20.6, §20.21.6, §20.22.7, §20.23.6, §20.24.6, §20.25.6, §20.26.6, §20.27.7, §20.28.5, §20.30.1, §20.31.1, §20.32.1, §20.33.7, §20.34.5, and §20.35.9 are the live unknowns — §20.29.6's last two went with slice 6, so that section is no longer on the list. §20.24 is the one section that is deliberately *half* of what was asked: indexing eleven languages is finished and verified, and detecting in them is the per-language work §20.24.6 enumerates. §20.22.1 is the one item in that list that is a question about *scope* rather than a known limit: §4.4.3 says "four known patterns" and never names them. §20.23 is the counter-example that shows the difference — CWE-364 names its own behaviours, so that section's shapes carry no such caveat, and what it records instead are limits of the analysis rather than questions about what to build.*
+### 20.36 A scan runs on Freebuff's chat surface (§20.33's first row, re-homed)
+
+**What was asked.** §20.33 made the command a passage: `windbreak` offered to run a scan, browse the
+files, or resume a run. Retiring the screen (§20.34.2's passing note) took the first row's *surface*
+away with it, leaving a scan reachable only as a shell command whose output scrolls out of the
+alternate screen — which is the thing §20.33 was built to stop, and the reason its summary rule
+exists at all. The ask was to run it on screen again. Not to bring the screen back.
+
+#### 20.36.1 It is a view inside the chat app, not a second app
+
+`cli/src/windbreak/` stays deleted. The scan is a component rendered in the transcript's place,
+using the seam `/review` already uses: a boolean in a store, a field on `CommandResult`, and a
+component. That is four files against the 41 and 10,500 lines the last attempt cost, and it is why
+this is affordable now — the seam, the keyboard, the theme and the renderer all already exist, and
+the only genuinely new decisions are the ones below.
+
+**It re-homes an orphan rather than inventing an interface.** `launchScan` was written *for a
+renderer* — `{ dbPath, targetRoot, configPath, runId, log }`, `Ok | Refused`, `yes: true` already
+inside it so a budget overrun cannot block on stdin the renderer owns — and the only caller it ever
+had was the deleted screen. The view calls it; nothing about the engine changed to accommodate the
+TUI. `createReviewInvestigator` is still orphaned, and §20.36.2 records what that leaves open.
+
+#### 20.36.2 Two anchors, and why they are not the same one
+
+| | answer | why |
+|---|---|---|
+| **the checkout** | the session's own repository | the chat has already resolved which repository it is about; `windbreak scan` run bare follows `config.target.location` because a command cannot say which checkout it means and this surface can. When the config names a different one, the view says so. |
+| **the database** | the config's, else `<repo>/.windbreak/state.db` | state's location is a decision the config owns, and a run written anywhere else is a run `windbreak review` never shows — §18's substitution, with *not checked* reading as *clean*. |
+| **the config itself** | `$WINDBREAK_CONFIG`, else `<repo>/.windbreak/config.json` | **the one deliberate difference from `config.discoverConfigPath`**, which resolves against the process's working directory. That is right for a command, because a command runs *from* its target; the chat can be started in `<repo>/src/deep`, where the conventional path holds nothing and a configured database would be ignored from every subdirectory — silently, since that path is also the fallback. |
+
+A refusal is a value: an unreadable config is something the view has to *say*, and a throw would land
+inside a React render.
+
+#### 20.36.3 One summariser, and the view does not get its own
+
+The summary moved out of `commands/scan.ts` into `scan/summary.ts` as `scanSummaryLines(result)`.
+Two surfaces render a run now — the batch command prints the lines, the view colours them — and a
+second summariser would be a second answer to "what did this run say", which is the drift
+`launch.ts` already refuses to allow for the log (the view streams the same channel the command
+pipes to `console.log`). The leading blank line is the **first array element** rather than the
+printer's business, so `console.log(lines.join('\n'))` reproduces the previous output byte for byte.
+
+The view's colouring is a prefix heuristic over those lines and nothing more: a warning is
+`warning:`, a refusal is `BLOCKED:`, `OK:` is success. The facts stay in one module; the tones do
+not pretend to be facts.
+
+#### 20.36.4 Where the body opens is a property of what is in it
+
+A running log is read at its **newest row** — that is the part that is moving — and a summary that
+has landed is read at its **first row**, because those first lines are which run this was and how it
+ended. A view that opened at the bottom would show the tail of the stage table before it said the
+run's name. Both anchors are asserted on captured frames.
+
+The log keeps its last 2000 lines and **counts and states** what it dropped, because §18 applies to a
+scrollback as much as to a report: a shorter log must not read as a quieter run. The summary is the
+record and is never windowed away.
+
+#### 20.36.5 `esc` is refused while the run is in this process — and says so
+
+`launchScan` has no cancel, so leaving would hand the terminal back to the chat while the run kept
+writing to a callback nothing renders: the summary and the warnings would be lost, which is the one
+thing the view exists to keep. So `esc` names that instead of pretending to be a cancel — a key that
+looks like a cancel and is not is worse than no key. The old screen made `esc` quit the *process*,
+which this surface cannot do: it is not the process's only view. `r` continues an incomplete run
+from its first unfinished stage, and leaving after it lands puts one line in the transcript — the
+run's id, its status, its candidate and escalated counts, and the command that works the queue.
+
+**The auto-approved budget is stated, in two rows.** §9's policy is that a non-interactive caller
+degrades rather than prompts; here that is a *spend*, and an auto-approval nobody was told about is
+not a policy. The line is split so the half that matters — *this screen owns stdin* — is not the
+half a narrow terminal cuts. A truncated disclosure is not a disclosure.
+
+#### 20.36.6 Verified
+
+WindBreak **1396 pass / 0 fail** across 108 files (+7: the summary's honesty rules), the CLI **3123
+pass / 0 fail on everything new** — 36 new tests across `subject` (8), the view (12), the container
+(7) and `text-layout` (9) — with the same 19 pre-existing environment failures as before (clipboard,
+the model selector, `tar`, `packages/internal`), and both typechecks clean apart from the
+long-standing `react-dom/server` and `tar` cases.
+
+**Driven live**, which is how the two defects in this feature were found and neither by reading it:
+typed `/scan` in a real checkout → the view opened on the right repository and database and streamed
+`[recon] inventory …` as the run printed it → the run landed on a summary that named its own failure
+(`static-core failed: Required engine(s) unavailable: semgrep`) with all three warnings → `esc`
+returned to the chat with `WindBreak scan run_11104b…: failed · 0 candidate(s) · 0 escalated ·
+windbreak resume --run …`. The first defect was the anchor, caught by the view's own test (a finished
+summary opened at its bottom); the second was the budget line being truncated at the terminal edge,
+caught by asserting the disclosure's *words* rather than its presence.
+
+#### 20.36.7 Open items
+
+- **There is no way to stop a run.** `esc` refuses and `r` continues; a scan that is boring, wrong or
+  spending cannot be cancelled, only waited out or killed with the process. That needs a cancel in
+  `launchScan` (an abort signal through `runScan`'s stages, or a sandbox kill), not a key binding —
+  the key is the easy half.
+- **The stage table is only live as log lines.** `ScanResult` carries the stages, the counts and the
+  coverage, so the view shows them *after* the run; a progress callback with structure would let it
+  show the table the batch command prints, filling in as each stage lands. The engine emits one line
+  per event, which is enough to watch and not enough to tabulate.
+- **The investigator is still unreachable** (§20.29's mediated workspace, recorded turns and
+  conversation ceiling). This section gives a scan a surface; the queue is still worked by the host
+  agent through the chat brief, so §20.29–§20.32's invariants continue to describe a path nothing
+  takes.
+- **Per-run recovery of a view that was closed.** A scan whose view has been left still runs to
+  completion in the process, with nothing rendering it and its log dropped. It is reported honestly
+  in the transcript line, but the run cannot be re-attached: re-opening the view starts a new one.
+- **`--run` has no equivalent.** The batch command can resume a named run; the view can only continue
+  the run it just produced, because nothing in the chat surface takes arguments yet.
+
+---
+
+### 20.37 The queue on screen: `/windbreak` records the decision (§5.3's own writer)
+
+**What was asked.** §5.3 makes the researcher's disagreement the tiebreak, and §20.34 settled the
+queue onto the chat surface as a *conversation*: the agent runs `windbreak review --json`, reads it
+back, and records the verdict with `windbreak review --decide --rationale "…"`. That works, and the
+record it writes has an author nobody can name — the rationale is a model's sentence about the
+researcher's reasoning, composed from a brief. This section gives the queue the same surface §20.36
+gave the scan, and the write goes through `recordAdjudicationDecision` because that is the function
+the state transition already lives in.
+
+#### 20.37.1 A view, and the decision is the keystroke
+
+Bare `/windbreak` opens the queue; `/windbreak <brief>` still sends the brief, which is how the rest
+of the surface (`--run`-scoped review, verification, reports) stays reachable. The view is the same
+shape §20.36 established — a store flag, a `CommandResult` field, a component where the transcript
+would be — and this is the second view, so the flag became a discriminator
+(`windbreak-view-store.ts`: `'scan' | 'queue' | null`) rather than a second boolean. Two booleans can
+both be true, the render is a ternary, and closing the first view would then reveal a view nobody
+opened.
+
+What it replaces is a *command a model composed*. Here `r` and `b` open a rationale prompt, `enter`
+submits, `esc` abandons it, and nothing is written until the input is submitted — so the rationale
+is the researcher's text and §5.3's transition keeps one implementation: the batch `--decide` and
+this keystroke reach `recordAdjudicationDecision`, and the view writes no SQL and does not know the
+queue's columns. The line above the input states the consequence *before* the key that takes it
+(`real` joins verification as confirmed; `benign` drops the candidate and keeps it as a negative
+example), an empty rationale is allowed and recorded as none rather than the view inventing a policy
+§5.3 does not have, and a second decision on an already-resolved row says **"This replaces an
+earlier benign"** — `ReviewDecisionResult.previous` is carried to the screen for exactly that
+(§5.3 forbids a silent second look, not a second look).
+
+#### 20.37.2 What each model actually said, and the three nothings told apart
+
+The detail pane shows both arguments in full, each with the model id and the provider that gave it,
+plus §5.2's preconditions and the §5.1 injection signals — an attempt to steer a model is evidence
+about the finding. Three states are *said* rather than rendered as an absence: an unreadable evidence
+bundle ("not the same as a finding with no evidence"), a missing verdict record ("a record that was
+removed rather than a model that said nothing"), and no injection signals ("none recorded", because
+an unreadable column is not a pre-pass that ran quiet).
+
+§18 reaches the pane as four different nothings, each with its own sentences
+(`windbreak/queue-content.ts`, and no shared wording): a **refusal** (the session would not open, and
+nothing in that database has been read), a **missing database** (`openReviewSession` opens one on
+purpose and creates nothing, so the pane says *no state database exists at <path>*), an **empty
+queue** ("a statement about disagreements, not about the code — a scan that found nothing and a scan
+that never ran look the same from here"), and a **fully decided** queue, which points at `a` instead
+of looking empty. `a` lists the decided rows with the decision and the rationale each carries, which
+is what makes a revisit possible at all.
+
+#### 20.37.3 The database is the config's, by the scan's own resolver
+
+The view calls `resolveScanSubject` — the same module `/scan` uses — rather than reading
+`<repo>/.windbreak/state.db` itself. A view that read the conventional path while `windbreak scan`
+wrote to a configured one would show an empty queue to the researcher who configured it, which is
+§18's substitution arriving through the one door a screen cannot label afterwards. A configuration
+that cannot be read is a **refusal**, and it names the file: the conventional path is also the
+default, so falling back would be indistinguishable from success.
+
+That rule produced the first live defect (§20.37.5): the refusal state carried only the reason, and
+`SchemaVersionMismatchError`'s message names a version rather than a path — so the header said
+`database not resolved` and the reader could not tell which file to point at or delete. The refusal
+now carries the resolved `dbPath` when one was resolved, and shows `not resolved — the configuration
+could not be read` when the configuration is itself what failed.
+
+#### 20.37.4 Prose is wrapped by the pane, not by hand
+
+The second live defect: the placeholder copy was hand-wrapped for a ~90-column pane, and a narrower
+terminal wrapped it *again* — mid-clause, with the raggedness of a rendering fault rather than of
+prose. Every paragraph is now one string and `wrapToVisualLines` breaks it at the width the terminal
+actually has. The same fix went to §20.36's refusal copy, which had the same defect. The notice — the
+one line that must never be truncated, because it is the record of a decision just taken — is
+rendered through the same wrapper and its rows are reserved, rather than being fitted and elided.
+
+Rows are reserved rather than measured, the discipline §20.36 chose: the box cannot overflow, because
+the hint carries `esc back to chat` and the notice carries what was just written, and both are below
+the detail. `↑`/`↓` (and `j`/`k`) move the cursor, `PgUp`/`PgDn` (and shift+↑/↓, and `K`/`J` for
+terminals that swallow modified arrows — `queue-panel`'s reasoning, reused) scroll the pane, and the
+two never collide on one keypress.
+
+#### 20.37.5 Verified
+
+The CLI's queue tests came to **61** — the key table (7), the content module (25), the view's frames
+(16), the container against real SQLite files (9), and the command's bare-vs-brief split (4) — with
+both typechecks clean apart from the long-standing `react-dom/server` and `tar` cases, the CLI's
+`3182 pass` carrying the same pre-existing environment failures as before (clipboard/OSC-52, the
+model selector, `packages/internal`), and WindBreak unchanged at `1388 pass / 0 fail`.
+
+The container tests are the load-bearing ones, and they use **no stub**: a seeded file database is
+opened by the real `openReviewSession` through the real resolver. `r` + a typed rationale + `enter`
+writes `decision = 'real'`, `decided_at`, and the rationale into `adjudication_queue` and flips the
+candidate to `confirmed`; `b` writes `benign` and `dropped`; a schema-version-7 file refuses with the
+runbook sentence; a missing database opens, says so, **and creates nothing**; an unreadable config
+refuses rather than guessing a path; a configured `custom.db` is the one opened while the
+conventional `state.db` sits there empty; and a pre-resolved row decided again reports the previous
+decision. One of those tests exists because a typing step is not instantaneous: `MultilineInput`
+registers for focus a frame after the render that creates it, so a keystroke in the same tick reaches
+nothing — the first version of the rationale test passed an empty rationale and failed, correctly.
+
+**Driven live** in a seeded checkout through a pty, which is where the two defects in §20.37.3 and
+§20.37.4 came from. `/windbreak` opened on the right repository and database with `1 pending · 1 of 2
+decided`; `r` showed the consequence line and the prompt; the typed rationale landed as
+`rationale = 'no cap before the copy'` with `candidates.state = 'confirmed'`; the frame then said
+`Every disagreement in this database has been decided: 2 of 2` and `recorded real for 01JQ8V2M4P7XA…`;
+`a` listed both rows and the detail pane showed `your decision · real — the candidate joins
+verification as confirmed`, its timestamp, and the rationale. `esc` produced `WindBreak queue: 0
+pending · 2 of 2 decided · decided here: real ×1`.
+
+#### 20.37.6 Open items
+
+- **No run filter.** The session supports `runId` and `runs()`; the view shows every run's queue, so
+a database holding several runs mixes them in one list. The batch command has `--run`, and §20.33's
+start menu had a run chooser — this view has neither.
+- **A decision cannot be un-made.** Deciding again is announced and works; there is no "return to
+pending", because `recordAdjudicationDecision` writes a decision and §5.3 defines no un-resolving.
+A `null` decision is representable in the table and not in this UI.
+- **The code around the site is not shown.** The pane renders the stored snippet. Reading the file,
+or the call graph a TOCTOU finding was escalated on, would need a second path into the target —
+§20.29's mediated workspace is the machinery for that and remains unreachable (see below).
+- **`createReviewInvestigator` is still orphaned.** This view reads the queue and writes decisions;
+it hosts no investigator, so §20.29–§20.32's confined workspace, sandboxed commands, recorded turns
+and conversation ceiling continue to describe a path nothing takes. The queue can now be worked
+without a model, which makes that gap more visible rather than less.
+- **The closing line tallies decisions, not their rationales.** `WindBreak queue: 0 pending · 2 of 2
+decided · decided here: real ×1` goes to the transcript; the rationale stays in the database, where
+`a` re-reads it. A reader of the chat history alone cannot see *why* a candidate was resolved.
+- **The rows are not clickable.** The chat has a `ClickableTitleBox` and a mouse-aware queue panel;
+this view is keyboard-only, and `a`/`include-resolved` is not persisted, so re-opening starts
+pending-only.
+- **One window, no search.** With hundreds of queue rows there is no filter by file, CWE or source,
+and no jump-to-candidate by id — the list scrolls one row per keypress.
+
+### 20.38 The queue's investigator: `c` answers a question about the row (§20.29's orphan, reachable)
+
+**What was asked.** §20.37 gave §5.3's queue a surface, and §20.36.2 recorded what that left
+standing: `createReviewInvestigator` was still orphaned — §20.29–§20.32's confined workspace,
+sandboxed commands, recorded turns and conversation ceiling described a path nothing took. The ask
+was to wire *that* in, not to build a new assistant for the queue.
+
+#### 20.38.1 Why the engine's investigator and not a chat tool
+
+The temptation is the harness's own `spawn_agents`: it is already there, it isolates context, and
+writing a bridge looks like more work. It is the wrong tool here for three reasons that are about
+*containment* rather than capability, and the third is the one that decides it.
+
+A spawned subagent runs in-process with the session's tools and cwd. That means the **session's
+checkout**, not bound to the scan target; no mediated workspace, so a read the investigator is not
+allowed is a read nothing refuses; no `investigator_turns` row, so the answer is not recorded and
+§20.29.3's "a model call that is not recorded is a model call that did not happen" is false; no
+ceiling; and prose that is free to be read as a verdict. And the harness made the opposite choice
+on purpose — `agents/base3.ts` states that `web_search`/`read_url` *replace* base2's researcher
+subagents, and `agents/__tests__/base3.test.ts` asserts that every CLI root has none.
+
+The per-candidate job is also not a capability problem. It is *context isolation*: read the file,
+check the callers, weigh the two verdicts already in the JSON. That is what
+`investigator_turns` was built for, and an in-engine fan-out over the same bridge would inherit
+containment, recording and the ceiling for free where a harness subagent would have none of them.
+
+#### 20.38.2 Three things the bridge owns, and the view owns none of them
+
+`cli/src/windbreak/investigator.ts` is a small module with three responsibilities, each of which
+was a bug waiting to happen in a render path.
+
+| | why it is the bridge's job |
+|---|---|
+| **credentials** | `createWindbreakClient` throws when there is no token or when the SDK's import-time environment is broken. Both are *normal* for this surface — the queue is readable and decidable offline, which is §20.37's whole point — so they become a sentence the pane shows, and `ask` answers with it as the turn's `error` rather than throwing. One path in the pane, not two. *Since §20.41.7 the transport is the CLI's own client and live session, read rather than opened; `createWindbreakClient` is no longer reached from here, and a missing login is the same sentence.* |
+| **the connection** | a **second** connection to the same file, not the session's. `openReviewSession`'s session is a queue *reader* by its own description and the bridge writes `investigator_turns`; widening one object to do both would make "which reads are the queue's" unanswerable. WAL takes two readers and a writer, which is what the retired screen did for the same reason. |
+| **the limits** | §20.29.6's two ceilings come from the config the *subject* already resolved, so a `maxConversationCalls` or `maxSteps` in `.windbreak/config.json` bounds this conversation whichever way the tool was launched. The retired screen read them only from a `--config` it was handed, which is the gap this closes — and `maxSteps` closed it only after §20.38.4's fifth defect, which is why the mapping is a typed function now instead of two properties spread into the call. |
+
+#### 20.38.3 What the pane may not imply
+
+The content module (`queue-chat-content.ts`) exists so that every rule here is testable without a
+renderer, and every one of them is a rule about what *may not be read into* what is on screen.
+
+1. **A pending turn stops before its answer.** The transcript is built from finished turns; the
+   running one is drawn as *investigating*. An answer cannot appear before it arrives.
+2. **A stopped turn is not a broken one.** `cancelled` is said in its own words, because the
+   researcher who pressed `esc` needs to know that is what happened.
+3. **An answer is not a decision.** The pane says so where a reader starts using it, and a
+   recorded candidate is drawn as *recorded* with the model's own label — never as an assessed
+   class. The row's decision is still `recordAdjudicationDecision` (§5.3).
+4. **A turn that is not on record says so.** §20.29.3 makes the answer a stored artifact, so a
+   turn whose write failed must not read as one that will still be there.
+5. **The ceiling is stated when it is spent, with the way out.** A disabled input and no
+   explanation is §18 in the pane's own chrome.
+6. **A refusal is a state of the conversation, not of the question.** An account-level failure
+   repeats for every question, so it belongs above the input and not only in the transcript.
+
+#### 20.38.4 Five defects the wiring and the first live run found
+
+None of these were visible from the design. The first four came out of the tests that pin the rules
+above; the fifth out of reading the option names against the engine while setting up the live run,
+which is the only reason it was caught at all — nothing failed, nothing warned, and the pane
+reported no problem.
+
+- **Two sources for one budget.** The pane rendered the bridge's call counter while each turn
+  carried its own, so the same ceiling could be drawn two ways in one frame. The count is now
+  derived from the finished turn and falls back to the bridge, which is the only arrangement in
+  which the two can disagree on screen only if the turn is missing.
+- **A reason truncated at the edge.** The unavailability sentence went through `fit(...)` and
+  arrived as `…so the investigator cannot run. The queue still works: deci…` — a refusal whose fix
+  was cut off by the row it was rendered into. The chrome is now built as wrapped rows, so the
+  reservation cannot disagree with what is drawn.
+- **The pane's own terms were dropped.** `buildQueueChatLines` replaced its opening prose with the
+  first answer once the transcript was non-empty, so *"It does not decide anything."* vanished at
+  exactly the moment a reader had an answer to over-read. It stays at the head of the transcript.
+- **An engineer turn was named as a read-only one.** `QueueChatTurn.agent` had been narrowed to
+  `'investigator'` while the engine's union includes `'engineer'`, so a turn that held a writable
+  copy of the target was rendered as though only the sandboxed investigator had spoken. The
+  question line now says `you (engineer)`.
+- **The step ceiling was accepted and ignored.** The bridge passed `{ maxSteps }` into
+  `createReviewInvestigator`'s options; the engine's key is `maxAgentSteps`, and because the value
+  arrived through an object **spread** the excess-property check never fired. The engine took the
+  object, dropped the unknown key, and ran the agent on its own default of sixteen steps — so a
+  `maxSteps` written in `.windbreak/config.json` bounded nothing, silently, while
+  `maxConversationCalls` (passed as a named property, and therefore checked) kept working. That
+  asymmetry is what made it invisible: the pane was behaving *exactly* as documented for the
+  ceiling that was wired, so a researcher with a small `maxSteps` had no symptom to notice. The
+  fix maps the config's two keys to the engine's two keys in `investigatorLimitOptions`, whose
+  declared return type is `Pick<CreateReviewInvestigatorOptions, 'maxConversationCalls' |
+  'maxAgentSteps'>` — a rename in the engine is now a compile error here — and `maxSteps` became a
+  required input rather than an optional one with a default, because the two callers already have
+  the resolved value and an omitted ceiling is how a default gets invented twice.
+
+#### 20.38.5 Verified
+
+**The suite.** `cli/src/windbreak/investigator.ts`, `cli/src/windbreak/queue-chat-content.ts` and the
+view, screen and action-list changes are covered by **115 tests across seven files** — the content
+module's own 32 pinning the six rules above, the view's frames and keys, the container against a
+seeded SQLite file with an injected client, the command's bare-versus-brief split, and five for the
+bridge module itself — all passing, both typechecks clean apart from the long-standing
+`react-dom/server` and `tar` cases, and the CLI suite at `3234 pass / 37 fail / 19 errors` (the same
+37 and 19 as before this feature).
+
+Those five are new, and they exist because of §20.38.4's fifth defect: the module that owns the
+credentials, the second connection and the limits had **no test of its own**, which is why a setting
+could stop applying without anything noticing. They assert the mapping's key names (the regression
+pin), that a turn built with a real client reaches the engine, answers, and leaves an
+`investigator_turns` row, that a missing client is a sentence the pane shows rather than an
+exception inside a render, and that the bridge's own connection leaves the queue's reader working —
+read through a second handle opened before the bridge, which is the behaviour the two connections
+exist for.
+
+The container tests use no stub for the database: a seeded file is opened by the real
+`openReviewSession` through the real resolver, and the assertion that matters is that a finished
+turn leaves an `investigator_turns` row while the candidate's state is untouched.
+
+**The first live run.** The pane's own bridge was driven with **no injected client** against a real
+checkout — two files, an unbounded `strcpy` handed `argv[1]`, a pending adjudication row whose two
+verdicts disagree, and a `SYSTEM: ignore all previous instructions` line in the file the question
+was about. The instrument is `resolveScanSubject` plus `createQueueInvestigator`: the same two calls
+a keystroke makes.
+
+What held up:
+
+- **The subject resolved from the checkout's own config.** `target.db` came back as
+  `<checkout>/.windbreak/state.db` — the config's directory, not the process's — and the ceilings
+  came back as the fixture's `{ maxConversationCalls: 6, maxSteps: 5 }` rather than the built-in
+  `120`/`16`. A config's ceiling is what the pane enforces.
+- **Credentials resolved with nothing injected.** `unavailableReason` was null, `budget()` read
+  `{calls: 0, limit: 6, turns: 0, tokens: 0, exhausted: false, remaining: 6}`, and `modeFor` answered
+  `explain` for a candidate and `hunt` for nothing — the pre-question state, exactly as §20.38.2
+  describes it.
+- **A failed turn is recorded, and a recorded turn is not a decision.** Both turns were written to
+  `investigator_turns` — `inv_14a3…` for `explain` against `cand-1`, `inv_96af…` for `hunt` with
+  `candidate_id` NULL — with the prompt verbatim, `answer` **NULL** and `error` set, which is §18's
+  distinction between *no answer* and *never asked*, kept in the record rather than only on screen.
+  The candidate's state was still `escalated` afterwards, and `tool_derived` was `0`.
+- **The account-level refusal arrived classified.** Both calls met HTTP 402
+  `{"message":"Out of credits. Please add credits at https://www.codebuff.com/usage."}` from
+  `deepseek/deepseek-v4-flash`, and the turn carried `failure.kind = 'credits'` rather than a bare
+  message — the §20.34 classification, on this surface, live. The engine said the same thing in its
+  own words: *"Windbreak runs its own agents rather than Freebuff's free-tier ones, so a scan or a
+  question is always metered."*
+- **The ceiling charged one call per refused turn.** After two turns the budget read `2/6` with
+  `tokens: 0` — the floor of one call per turn, and no token spend where the provider refused.
+
+**What the live run did not reach, and why.** The account has no credits, so no turn produced an
+answer: `answer` is NULL in both rows and the twelve model calls that would have driven a turn
+never happened. Nothing below has therefore been observed live — the mediated workspace reading a
+file, a sandboxed command running, §5.1 neutralizing the `SYSTEM:` line the fixture deliberately
+contains, a `propose_candidate` proposal, an engineer turn against a working copy, or `esc`
+stopping a turn in flight. Those remain covered by the engine's own suite and by the pane's, which
+is where they were covered before this run; the run's contribution is the half that only a real
+account can exercise, and that half is now the top item in §20.38.6.
+
+One behaviour worth knowing before reading a spent balance as a bug: the second turn **did** call the
+provider again after the first was refused. That is deliberate — §20.34 holds the refusal banner
+until a call goes through, precisely so that topping up resumes without a restart — but it does mean
+a spent balance costs one unit of the conversation ceiling per attempt while it lasts.
+
+#### 20.38.6 Open items- **No successful live turn has ever run.** §20.38.5 got the bridge as far as a real provider and
+  was refused for billing, so everything on the answered path is still unexercised against a real
+  account: the confined read, the sandboxed command, the neutralization of an instruction-like line
+  the model actually reads, a proposal, an engineer turn, and `esc` cancelling a turn mid-flight.
+  Every previous feature in this document found something on that step that reading could not, and
+  this one has not had it yet.
+- **The step ceiling's fix is pinned by a unit test, not by a turn.** The mapping is asserted and the
+  engine's key name is type-checked, which is what a regression needs; but no live turn has run long
+  enough to be cut off by the ceiling, so "the agent stops after `maxSteps`" is still an inference.
+  A fake client that asks for a tool on every step would settle it without an account, and is the
+  cheap version of the item above.
+- **The ceiling's provenance is the checkout's.** The pane reads `investigator.maxSteps` and
+  `maxConversationCalls` from the config `resolveScanSubject` resolved, which is the checkout's own
+  by default — so a foreign repository can raise or lower the researcher's spend limit, where the
+  retired screen's rule (a named `--config` only) could not. The exposure is cost rather than
+  containment: a raised ceiling spends the researcher's money, it does not widen what the
+  investigator may read. The database path already works this way (§20.31) and `$WINDBREAK_CONFIG`
+  is honoured ahead of the conventional file — but the difference from the retired rule is real,
+  and it belongs in the record rather than in a reviewer's memory.
+- **The pane's own renderer has not met a real terminal.** The container is exercised with
+  `createTestRenderer` and a seeded database, and the bridge now with a real one — but the two
+  together, inside the chat app on a pty, is where §20.32's wrapping and §20.37's conflict with the
+  scan view live, and it is not covered.
+- **The transcript does not survive a restart.** Turns are recorded, and nothing reads
+  `investigator_turns` back: reopening the pane starts empty and the earlier conversation is in
+the database rather than on screen. Rebuilding the transcript from the record is the obvious
+second slice, and it is the one that makes the recording visible to the researcher rather than
+only to an auditor.
+- **One conversation per row, and no memory of it.** `/hunt` asks about the whole target and a
+plain question about the selected row, but the ceiling is spent per conversation opened, so two
+questions about one candidate are two budgets.
+- **The pane cannot see the code.** It shows the stored snippet and the two arguments. Reading the
+  file, or the call graph a TOCTOU finding was escalated on, is §20.29's mediated workspace — now
+  reachable, but only through the model's own tools, not as evidence on screen.
+- **The question is not recorded with the answer's provenance in one place.** The turn row holds
+  the agent, the working copy and the writes; a reader asking *which model answered* has to join
+  the verdicts table for the model the run used.
+
+### 20.39 Reachability: whether an attacker can get there (§4.4.4)
+
+**What was asked.** Every producer in this build answers *is this code wrong?* — seven C/C++ rules,
+four check-to-use FSMs over a call graph, fix-history mining, two models arguing about the result —
+and nothing answered *can an attacker reach it?* That is the question a triager asks first and the
+most common reason a technically-real finding is closed as N/A, so the pipeline was strong at the
+half of the job that does not decide a report.
+
+§4.4.4 puts reachability in the static core. This section records what was built, the one rule it
+refuses to break, and the three things it still cannot see.
+
+#### 20.39.1 The inventory is a claim with a reason, not a boolean
+
+The module is `src/reach/`, and the first part of it reads nothing: `entries.ts` takes the callable
+definitions and asks which of them the program can be *entered* at. Four kinds, deliberately not
+equal.
+
+| kind | why it counts | what it does **not** claim |
+|---|---|---|
+| `fuzz-entry` | `LLVMFuzzerTestOneInput`: the project's own harness hands this function arbitrary bytes, so its input is attacker-controlled **by construction** | that the fuzzer is reachable in the shipped artifact |
+| `main` | argv, the environment and standard input arrive here | that an attacker chooses them — which is false for a setuid helper |
+| `input-source` | the function calls one of a short curated list of readers (`recv`, `read`, `fopen`, `getenv`, …) | *which* input it is; the reason names the call so a reader can tell a socket from a config file |
+| `unrooted` | nothing in the index calls it **and no call site naming it was dropped**, so it is reached from outside the index | whether it is an exported API, a callback registered by address, or dead code — this module cannot tell which, and says so |
+
+Two decisions in that table are load-bearing.
+
+**`unrooted` is kept rather than dropped.** For a library target — the shape most memory-safety
+bounty programs actually have — the caller *is* the attacker, and its entry point is the exported
+function. Excluding it would make every finding in a library unreachable and the tool useless
+exactly where it applies. So it is classified separately and a site reached only from one is
+`exposed-api`, which is a weaker statement than `attacker-input` and is reported as such.
+
+**A dropped call site disqualifies `unrooted`.** A definition with a call site naming it that the
+graph could not attribute — a call in a global initialiser, or a name several files define — *is*
+called, by someone the analysis cannot see. Calling it an unrooted entry would launder an
+unresolvable call into an `exposed-api` conclusion, which is a class the report treats as
+reachable. It is left out of the inventory instead, and `graph.ts` marks it and everything
+downstream of it `unknown`. This was found while writing the fixture for it, and it is the kind of
+inconsistency that is invisible until two modules are asked the same question.
+
+#### 20.39.2 Three spreads and the one rule: "no path" is not "unreachable"
+
+`graph.ts` walks the closure three times in priority order, each pass skipping what the previous
+one settled: from the attacker-input entries, then from the `unrooted` ones, then from the
+definitions whose **caller sets are incomplete** — which is the only place the call graph's
+`droppedCallersOf` counters are read for a positive conclusion rather than as a veto.
+
+A definition the third spread reaches is `unknown`, not `unreachable`, and so is everything below
+it: an unresolvable caller of `F` makes `F` possibly reachable, and therefore everything `F` calls.
+Taint stops at anything a real entry point already reached, because a real path settles the
+question. The reason travels with the class — the root names the dropped call sites, the nodes
+below name the function whose caller set is incomplete — so a finding states *which* gap applies
+rather than only that one exists.
+
+The four classes are then:
+
+- `attacker-input` — reached from `main`, a fuzz entry, or an input reader;
+- `exposed-api` — reached only from an unrooted entry;
+- `unreachable` — called by name, no path, and every caller set on the way in complete;
+- `unknown` — the search could not be completed, **with the reason**.
+
+An empty inventory makes every answer `unknown` rather than `unreachable`, and the reason says why:
+an empty inventory is a statement about the parse, not about the program. A target whose model
+contains only two mutually recursive functions reaches that branch, and the tests exercise it.
+
+#### 20.39.3 Where it sits, and the two seams it needed
+
+`interproc/` is new. `callgraph.ts` had lived inside `toctou/` because that was the first thing that
+needed one, and it is not a TOCTOU artifact: "which function calls which" is a fact about the
+program model, and two modules reading it from different code paths is how they end up disagreeing
+about what a call site resolves to. The builder moved (a `git mv`, with `toctou` now a consumer
+like any other), `definitionKey` is re-exported from it so a consumer that builds its own adjacency
+keys nodes the same way, and `reach/` consumes it.
+
+One addition was needed rather than moved: **`callsOf(file, name)`** — every call *reference*
+attributed to a definition, resolved or not. The graph already computed that attribution and threw
+away everything that did not resolve, which is fine for a consumer asking what an edge means and
+fatal for `entries.ts`, whose entire input-source list is libc: `recv`, `getenv` and `fopen` have no
+definition in the target and therefore no edge. Finding that out was the change that made the
+`input-source` kind work at all; before it, the kind was unreachable code.
+
+The pass runs **last in `static-core`**, after every discovery producer has persisted its
+candidates, because the thing being annotated is a candidate row. It sits in the static core rather
+than in triage because §4.4.4 is a static question whose answer changes *which* candidates are
+worth a model call, and it changes no candidate's state: a recorded `unreachable` is a reporting
+gate, not a deletion.
+
+#### 20.39.4 What it changes
+
+| | |
+|---|---|
+| **the gate** | `deriveFindings` excludes a candidate whose *recorded* class is `unreachable`, with the reason attached. The gate is on a recorded conclusion and nothing else: NULL — a pre-§4.4.4 database, or a site with no file and line — passes, because a run that did not look is not a run that found no path (§18, the rule §20.35 already states for dynamic confirmation). |
+| **the evidence** | one line in the bundle: the entry, its reason, the depth, and the call path — `main (src/main.c) -> parse_header (src/handler.c:12) -> copy_name (src/handler.c:41)`. `unknown` carries its reason, and an `unreachable` line names the window a pointer call leaves open when the run saw unresolved callees. |
+| **the summary** | a reachability line beside the candidate counts and the language/interprocedural coverage lines, for the same reason those exist: `0 unreachable` must not print the same way as a closure that never completed. |
+| **the schema** | v9: `entry_points` (target, file, name, kind, reason, sources) and `candidates.reachability_json`, with NULL meaning *never analyzed* rather than `unreachable`. |
+
+#### 20.39.5 What this first version cannot see
+
+Stated here rather than discovered by a reader of a finding.
+
+- **Function-pointer calls.** A call through a pointer names no definition, so the address-taken
+  function has no incoming edge by name and appears as `unrooted` — an entry of its own — which
+  makes a site reached only that way `exposed-api` rather than unreachable. The narrow hole left
+  over is a function called by name only from unreachable code *and* reached through a pointer from
+  reachable code. `symbol_refs` records one kind (`call`), so "address taken" is not detectable
+  from the program model; the count of names with no definition is printed beside the counts so a
+  reader can see the size of the window.
+- **It is graph reachability, not exploitability.** A guard that always holds, a length check that
+  makes the copy safe, a value the attacker cannot choose — all outside it. §5.2's verification and
+  `confirm` remain the stages that argue about whether a reached defect is real.
+- **A language-shaped ceiling.** C++ overloads are one name in this model, so an overload set
+  resolves to whichever definition the policy picks, and the graph is a name graph rather than a
+  type graph. The same is true of the call graph the toctou pass reads, and it is a recall limit
+  here rather than a correctness one.
+- **No entry point a target can add.** A plugin registered through a table of function pointers is
+  `unrooted`, which classifies it correctly and coarsely; there is no way for a target to declare
+  "this is my input surface". Adding to `INPUT_SOURCE_CALLS` is a reviewed decision with a
+  consequence — every function that calls the new name becomes an entry — which is why it is a
+  short curated map rather than a pattern.
+- **A qualified call the name index cannot resolve.** `Q::f` is captured as written, and
+  resolution compares that whole string against an index that holds `f` with `Q` in a separate
+  column — so it matches nothing, makes no edge, and is never *dropped* either, which leaves it out
+  of `droppedCallersOf` as well. The tail of each such reference now taints the definition it could
+  name (§20.39.8), and the count is printed beside the unresolved names so the size of the window
+  is visible. The match is deliberately coarse — "some qualified reference ends in this name", not
+  "this definition is the one it names" — so a method whose name is common (`size`, `init`, `attach`)
+  can be tainted by a qualified call to a different type's method. That over-taints toward `unknown`,
+  which is the safe direction, and it is the price of not guessing which type a name belongs to.
+- **How much of a real target the closure settles.** On zlib the classes split 216 attacker-input,
+  126 exposed-api, 126 unknown, 0 unreachable — so under half the callables are settled by a *path*.
+  The dominant reason is not the closure but the program model: 1,294 of 3,735 call sites (35%) sit
+  outside every indexed callable, and 93 C# callables are not swept at all (§20.24). §20.39.8 has
+  the numbers; the point to carry is that `unknown` is where the honesty lives and it will be the
+  largest class on a target that is not a single-language C project.
+
+#### 20.39.6 Verified
+
+WindBreak typechecks clean and the suite is `1461 pass / 0 fail` across 112 files. §4.4.4's own
+tests are **57**: 50 in `src/reach/` — the inventory (12), the closure (15), persistence and
+rendering (17), and the pass against a seeded program model (6) — plus 5 in the reporting gate and 2
+on the scan summary's new line. §20.39.8 adds **8 more**: the qualified tail taint (3 in
+`src/reach/graph.test.ts`, including the negative control and the real-path case), the call graph's
+new `unresolvedNames`/`callsOf` seams (3 in `src/interproc/callgraph.test.ts`), and two more summary
+cases — the qualified clause, and its absence when every unresolved name is bare. The call graph's own
+suite moved with the module and still passes, and the CLI is unchanged at `3234 pass / 37 fail /
+19 errors` with its two long-standing typecheck cases (`react-dom/server`, `tar`), because the
+summary line is shared code: the batch command and the on-screen view both print it without either
+being taught about §4.4.4.
+
+#### 20.39.8 The first real target: one false `unreachable`, and the qualified reference behind it
+
+The gate's first run against a repository it did not seed was zlib at `d81c2d7` — 271 files, 642
+symbols, `--static-only` so no model call was made. It classified 468 callables from 156 entry
+points (22 `main`, 51 `input-source`, 83 `unrooted`) over a graph of 814 edges built from 3,735 call
+sites, 1,294 of which no indexed callable covers and 67 of which name a function several files
+define.
+
+**It reported exactly one `unreachable`, and it was wrong.**
+`contrib/iostream/zfstream.cpp: attach` is a member of `gzfilestream_common`. Two of its three call
+references are written `gzfilestream_common::attach` (lines 306 and 326, inside the `gzifstream` and
+`gzofstream` constructors); the third is a recursive self-call. The graph captured the qualified
+references exactly as written, and `resolver.ts` compares that string against a definition index
+that holds `attach` with `gzfilestream_common` in a separate column — so they resolved to nothing.
+No edge was made, and because a reference that never resolved was never *dropped*, `droppedCallersOf`
+could not see them either.
+
+The recursion is what made it a false exclusion rather than a harmless miss. The self-call gave
+`attach` a resolved incoming edge, so it was *called* and did not qualify as `unrooted` — the class
+that would have made it `exposed-api` and preserved it. Nothing else reached it, its one visible
+caller was itself, and every caller set on the way in was complete. The module's own three
+conditions for `unreachable` were all satisfied and the answer was still false, which is the point
+worth taking from this: those conditions are about the *graph*, and the graph was missing a call that
+had been sitting in the program model the whole time.
+
+The fix reads the tail off `graph.unresolvedNames` — a seam added to `interproc/callgraph.ts` for
+exactly this, because a consumer asking a question about a *name* must not parse it back out of
+`unresolved`'s display strings — and treats a definition whose bare name appears as the tail of a
+qualified reference as an incomplete caller set: a taint root, the same treatment an unattributed
+call site gets, and for the same reason. Measured from the two runs' own metrics records rather than
+from a re-count:
+
+| | before (`run_6368dc37…`) | after (`run_235f73c5…`) |
+|---|---|---|
+| `unreachable` | 1 | **0** |
+| `unknown` | 125 | 126 |
+| incomplete caller sets | 100 | 101 |
+| unresolved names | 1,560 | 1,560 |
+| of which qualified | — | 10 |
+
+One callable moved, and the reason is printed on the record: *"1 call reference(s) naming it were
+written with a class or namespace qualifier (`gzfilestream_common::attach`), which a name-only index
+cannot resolve to a definition of its own."* The qualified count is now on the summary line beside
+the unresolved names, so a `0 no path` is not read as a completed search when ten calls in the model
+could not be attributed.
+
+**What the run also showed, and did not fix.** The denominator is not flattering: 126 of 468
+callables are `exposed-api` and 126 are `unknown`, so the closure settles 216 by a path — under half.
+The largest single reason is unattributed call sites (1,294 of 3,735, 35%), which is a
+parse-and-attribution gap rather than a reachability one, and 93 C# callables are not swept at all
+(§20.24). The gate is doing what it was designed to do on this target, and that includes saying
+`unknown` a great deal; a reader who wants `unreachable` to mean something should read those three
+numbers before the one that is zero.
+
+#### 20.39.7 Open items
+
+- **The queue does not show it.** `windbreak review --json` and the `/windbreak` pane render the
+disagreement and the two arguments; a candidate that will be excluded as unreachable looks like
+any other, so a human can spend a decision on a row the report then drops. Carrying the class onto
+the queue row is the obvious next slice, and it is the one that makes the classification useful
+*before* the report rather than only in it.
+- **The pass runs only under `scan`.** `windbreak engines`, `toctou`, and `pipeline` each run their
+  own stage without it, so a run built from the individual commands has no reachability at all —
+  which is safe (NULL excludes nothing) and silent, and it is invisible unless the summary line is
+  read on a scan.
+- **A path is a chain, not a witness.** The evidence names the functions an attacker traverses and
+  the call sites' lines, but nothing checks that the intermediate calls are possible at runtime:
+  a call inside `#if 0`, or behind a flag the build does not set, looks like any other edge.
+- **No query surface for the inventory.** `entry_points` is written per target and read by nothing
+  but the pass and its tests; there is no `windbreak entries` and the per-kind breakdown appears
+  only on the stage detail line. The table is the artifact a reader would want to argue with the
+  tool about, and today the only way to see it is SQL.
+
+### 20.40 The recall corpus and the rule tier: the first measured yield (§11.1)
+
+**What was asked.** §11 has carried two tiers since §20.18 and §20.19, and neither had produced a
+figure. Tier 2 scores recorded runs against a fixture list whose only shipped instances are schema
+examples with invented SHAs; Tier 1 spends provider calls and has no populated corpus either. So the
+only recall number this repository could have produced would have come from hand-seeded sites — sites
+written by the person who wrote the rule, showing that the rule fires on the code the rule was written
+for. The measurement and the thing measured had the same author, which is the specific way a fixture
+confirms exactly what it was built to confirm.
+
+This section records the corpus that replaces them, the instrument that scores it, and the number it
+produced on its first run. The number is not flattering, and that is the point of having it.
+
+#### 20.40.1 The corpus is mined, not chosen
+
+`windbreak corpus build --source <project>=<checkout> --out <file>` walks a checkout's history and
+writes a §11.1 pair set. Four decisions define what can be in it, and each has a cost worth stating.
+
+| decision | what it buys | what it costs |
+|---|---|---|
+| **the index is the commit message** | the source of truth is the project's own disclosure rather than a researcher's judgement | a fix the project never tagged with a `CVE-` id is invisible, so the corpus is the *disclosed* subset and over-represents findings that were disclosed loudly |
+| **the vulnerable revision is the fix's parent** | the code is as close to the defect as the history allows, with no unrelated release folded in | a history rewritten or squashed upstream breaks the pin |
+| **the unit is the function the diff touched** | the denominator answers "would a detector have fired here", derived from the diff rather than from an opinion about which function is guilty | a commit that also touched unrelated code in the same function contributes that noise |
+| **prose-only pairs are dropped** | a reformat is never seeded as a bug | none worth naming; see §20.40.2 |
+
+One pair per CVE per function, and the **oldest** commit wins when one function is fixed twice under a
+single id, so a fix is recorded where it first landed rather than at a later refinement of the same
+code. Pairs are sorted and deduplicated by a key derived from the fix, so rebuilding against the same
+history is byte-identical and a figure stays comparable with itself.
+
+The shipped corpus was mined from three checkouts — `curl`, `libarchive` and `libxml2` — and is checked
+in at `corpus/cve-fixes.json` (about 3.3 MB) so that scoring it needs no clone and no network:
+
+```
+commits read              158
+commits that gave a pair  111
+files considered          261
+pairs found               240
+duplicates collapsed        4
+pairs                     267
+
+drops (120):
+      87  no callable overlaps the changed line range
+      11  the commit changes no C or C++ source file
+       6  the callable has no counterpart after the fix
+       6  the file is not present at both revisions (added, deleted, or renamed)
+       6  the two halves differ only in comments and whitespace
+       4  the callable is longer than 2000 lines
+```
+
+The drop list is part of the artifact, not debug output. The largest category — a third of the files
+considered, where a changed line falls inside no parsed callable — is the C program model's coverage
+limit rather than a property of those fixes, and a reader who could not see it would take 267 for the
+number of CVE fixes in three projects.
+
+#### 20.40.2 Prose-only pairs, decided by a lexer rather than a regex
+
+A fix commit routinely edits prose alongside the fix: reformatting the function, correcting a comment,
+adding an attribution line. A pair built from the whole function would then record *that* as the
+difference, and every such pair is a bug seeded that no rule could fire on — indistinguishable, in the
+recall figure, from a rule that missed something real. This is the §11.2 failure at the smallest scale:
+ground truth carrying an assumption instead of a fact.
+
+So the builder asks whether any **code** changed, and answering that needs a lexer rather than a regular
+expression, because `//` inside a string literal is not a comment. Two things about it were settled by
+running the tests rather than by reasoning:
+
+- **Whitespace has to be compared as tokens, not collapsed.** Collapsing runs of whitespace does not
+  notice `{return` becoming `{ return`, so a pure reformat would survive the guard and enter the
+  corpus as a bug. `codeSignature` now tokenizes — identifiers and literals maximal-munch, everything
+  else one token — so `unsigned int` and `unsignedint` stay different while `strcpy (a)` and
+  `strcpy(a)` do not.
+- **A backslash-spliced line comment swallows the next line.** C splices `\`-newline in translation
+  phase 2, *before* it removes comments in phase 3, so `b;` on the following line is part of the
+  comment. Keeping it would leave code in the signature that no compiler ever sees. A test written
+  with the opposite expectation was the test being wrong.
+
+On the shipped corpus the guard drops 6 pairs, and the checked-in data is asserted against the same
+rule so a pair cannot acquire the defect after the fact.
+
+#### 20.40.3 The measurement
+
+`windbreak eval <pair-set> --rules` scores the committed rule set over every half of every pair. It
+needs no provider and no database, so it runs anywhere `semgrep` does; the engine is invoked **once**
+over all 534 halves rather than once per half, because §4.3 drives it once over a whole target and a
+per-half invocation would measure a differently configured machine, slowly enough that nobody would
+re-run it.
+
+Three honesty rules come straight from §18, and the second is the one that matters:
+
+- a batch that failed — engine absent, unparseable stdout, `executionSuccessful: false`, a non-zero
+exit with nothing read — marks **every** half unscoreable rather than clearing them;
+- **a half the engine did not report on is unscoreable, never a clear.** Treating a missing result as
+  "no findings" would shrink the denominator by exactly the halves the engine choked on, so a failure
+  would *improve* the score;
+- if no half got a verdict the stage reports `not-run` with its reason, and the metrics are absent
+  rather than zero — a measurement that did not happen is not a score of nothing.
+
+Discrimination is the headline, not sensitivity: it counts pairs where a rule fired on the half
+containing the defect **and** not on the half that fixes it. A rule set that fires on everything scores
+perfectly on sensitivity and zero here.
+
+```
+instrument         pairs  tp   fn  fp   tn  unscored  sensitivity  false alarm  precision  discriminated  fn/fa
+─────────────────  ─────  ──  ───  ──  ───  ────────  ───────────  ───────────  ─────────  ─────────────  ─────
+detector rule set    267  28  239  25  242         0        0.105        0.094      0.528          0.011  9.56x
+
+rule                              vulnerable  patched
+────────────────────────────────  ──────────  ───────
+wb-c-unbounded-string-op                  18       16
+wb-c-integer-overflow-allocation           8        7
+wb-c-format-string                         2        2
+```
+
+The report prints the evidence behind that rate in full, because a figure nobody can check is a figure
+nobody should quote: the three pairs that counted, and the twenty-five that fired on the fix as well.
+
+#### 20.40.4 What the number says
+
+The rule set fires on the **shape**, not on the defect. Eighteen firings on the vulnerable half against
+sixteen on the fixed one is not a detector that is nearly right; it is a detector whose output carries
+almost no information about which of the two halves contains the bug. The false alarms name the
+mechanism, and one of them is exact: `dprintf_formatf` in `lib/mprintf.c` is full of `sprintf`, so
+`wb-c-unbounded-string-op` fires on both revisions and cannot distinctionally fail. `Curl_smtp_escape_eob`
+(CVE-2018-0500) is the same story with a different rule: the fix corrected a multiplier, and the
+`malloc(2 * …)` shape it left behind still matches `wb-c-integer-overflow-allocation`. The rule was
+right that the multiplication was there and wrong about which multiplier was the defect — which is
+recall without discrimination, the exact distinction §11.1's two-sided corpus exists to expose and a
+one-sided one cannot.
+
+Four of the seven committed rules — command injection, realloc aliasing, insecure temp file, weak
+randomness — **did not fire at all** across 267 real CVE fixes. On this corpus they are not earning
+their place, and the per-rule table is the only place that is visible.
+
+What did work is worth naming too, because it is the shape a useful rule has:
+
+| caught | rule |
+|---|---|
+| CVE-2016-8618 `alloc_addbyter`, `lib/mprintf.c` | `wb-c-integer-overflow-allocation` — `infop->alloc * 2` wrapped; the fix added a wrap-around check and the rule cleared it |
+| CVE-2016-0754 `rename_if_dos_device_name`, `src/tool_doswin.c` | `wb-c-unbounded-string-op` |
+| CVE-2022-32208 `krb5_decode`, `lib/krb5.c` | `wb-c-unbounded-string-op` |
+
+The `fn/fa` ratio of 9.56× is the §15 asymmetry observed on real code rather than cited: this rule set
+misses about ten defects for every false alarm it raises, which is the opposite of the bias a triage
+stage is usually built to correct for.
+
+#### 20.40.5 What it does not say
+
+- **It is not a measure of the pipeline.** Recon, the call graph, patch mining, triage, verification,
+  reachability and reporting did not run. It says nothing about them, and nothing about them should be
+  inferred from it.
+- **The corpus is the disclosed subset.** Every pair comes from a commit that named a CVE, so the
+  denominator over-represents loudly-disclosed findings and excludes the quiet majority of real fixes.
+  A different indexing strategy — patch-linking, advisory databases — would produce a different number,
+  and none of them is more authoritative than another about "the true recall".
+- **The corpus spans the whole weakness space, and the rules do not.** A null dereference or an
+  authorization error is real ground truth here and is reachable by none of the seven rules. So the low
+  sensitivity is partly "these fixes were not that shape" — which is why the per-rule table is printed
+  beside the rate rather than folded into it, and why the figure cannot be quoted as a single verdict on
+  the rule set.
+- **It is coupled to the engine version.** The numbers come from `semgrep` 1.177.0. A version change
+  moves them, and nothing here records the version it ran under.
+- **It does not run in the test suite.** Scoring needs a `semgrep` on PATH, and a suite that quietly
+  stops measuring when one is absent is the failure §18 is about. The *data* is tested (it validates,
+  carries its provenance, holds no prose-only pair, and cannot shrink below a floor); the measurement is
+  a command an operator runs.
+- **The checked-in corpus does not track upstream drift.** Rebuilding it against a moved history is a
+  deliberate act, and until someone does it the file describes revisions that may have been rewritten
+  upstream.
+
+#### 20.40.6 Open items
+
+- **The rule set has no discrimination floor.** `--rules` reports and exits non-zero only when nothing
+  was measured; nothing fails a build when a rule that used to discriminate stops. The figure is
+  measured and not *gated*, which is the half of the corpus idea still unbuilt.
+- **No per-CWE breakdown.** `cwe` is `null` on every pair: the builder reads CVE ids from commit
+  messages and does not resolve them to weakness classes, so the one number that would separate "the
+  rules were aimed elsewhere" from "the rules are wrong" is missing from both the corpus and the
+  report.
+- **Only three projects, and only projects with a CVE-tagged history.** Nothing measures whether the
+  result generalises, and the selection of these three was a convenience rather than a sample.
+- **The rule set is scored alone, never in combination.** An unbounded-string-op rule that fires on both
+  halves is worthless by itself and may still be useful as one input to a triage stage; this tier cannot
+  tell the two apart, because only one instrument runs.
+- **Nothing scores the TOCTOU FSMs, the signal machine or patch mining this way.** All three are
+  detectors with no yield figure, and the corpus is shaped to score them as readily as it scores
+  `rules/security.yaml`.
+
+### 20.41 Free mode is not available to this caller (§8, §20.34)
+
+**What was asked.** The operator's report was that windbreak was paying Codebuff when Freebuff is
+free: *"you are using codebuff rather than freebuff, since codebuff requires credits. Freebuff
+doesn't."* Make it use the free path.
+
+The report was right about the product and right about the cause, and the answer is that windbreak
+**cannot** use the free path — for a reason no part of this repository stated. Both halves matter: the
+section starts with a real defect that this work fixed, and ends with a boundary that this work found
+and could not cross.
+
+#### 20.41.1 The 402 was a request that never named a session
+
+Every model call windbreak made was billed as a metered `normal` call against an account with no
+credits. A free call needs two things and windbreak sent neither.
+
+| what the SDK documents | where | and what happens without it |
+|---|---|---|
+| `costMode?: string` | `RunOptions`, `sdk/src/run.ts` | `run.ts` defaults an absent value to `'normal'`, which is the metered path |
+| `extraCodebuffMetadata` — *"client-scoped identifiers like `freebuff_instance_id` that server-side gates read from the request body"* | `RunOptions`, `sdk/src/run.ts` | the server has no session to admit the call against |
+
+The CLI sets both (`cli/src/hooks/use-send-message.ts`: `costMode: AGENT_MODE_TO_COST_MODE[agentMode]`,
+which is `'free'` under `IS_FREEBUFF`, plus `extraCodebuffMetadata.freebuff_instance_id`). Windbreak's
+two model entry points set neither:
+
+| call site | what it passed |
+|---|---|
+| `pipeline/invoke.ts` | agent, prompt, maxAgentSteps, signal |
+| `investigate/agent.ts` | the same, plus customToolDefinitions and onUsage |
+
+The token was never the problem. `src/auth.ts` resolves `~/.config/manicode/credentials.json`, and that
+is the **Freebuff login token** — the account was a Freebuff account, and windbreak was presenting its
+key without the session that makes calls free. The evidence is not the file path, which proves only
+where the token came from: a `GET` on the session endpoint authenticated with it returned the live
+session the freebuff CLI was holding, with its instance id and model. That is a Freebuff account's
+session, read with this token, and it is why "out of credits" was a true statement about the account and
+a misleading one about the cause.
+
+#### 20.41.2 The defect was written down as a design decision
+
+Three places in this repository describe model access, and they contradicted each other:
+
+- `src/models.ts` — *"Models that are **unmetered** at full access, i.e. they cost no daily session.
+  WindBreak's high-volume stages must stay on this list or a single scan burns the researcher's day."*
+  *(since rewritten — §20.41.9)*
+- `docs/Plan.md` §4.4 — *"Model access is completely free and time-based, so this stage isn't about
+  managing spend."*
+- `src/provider-failure.ts` — *"Windbreak runs its own agents rather than Freebuff's free-tier ones,
+  so a scan or a question is always metered."* *(since rewritten — §20.41.6)*
+
+Two of the three are quoted as they stood rather than as they stand: leaving the false sentences in the
+files is what this section is about, and a reader checking them should see what was actually claimed
+rather than a paraphrase of it.
+
+The third is the defect stated as an intent. It **describes the implementation and calls it a reason**:
+windbreak does run its own agents, and that is a choice about prompts and containment, not a statement
+about billing. A reader had no way to tell a limitation from a decision, which is why the contradiction
+survived review — the false claim was written in the register of the deliberate ones.
+
+#### 20.41.3 The protocol, and the one slot
+
+`POST /api/v1/freebuff/session/admission` with `Authorization: Bearer <token>`, `x-freebuff-model`,
+and `x-freebuff-wallet-spend-limit: 0` (the value the CLI sends) returns a session carrying
+`instanceId`, `accessTier` and per-model rate limits. Windbreak reads the instance id and the model,
+which is what a call has to name; `accessTier` rides on the lease unread, and the rate limits are not
+read at all — a run meets a quota as a refusal from the gate rather than as a number it planned
+against. Two properties of the response shape everything else:
+
+- **A session is bound to one model.** `POST`ing a second model while one is live answers
+  `model_locked`, and a request whose model does not match its instance ends the session
+  (`session_model_mismatch`). So the session cache is keyed by model, and Windbreak's two-vendor
+  configuration — §5.2's gate needs the Refuter on a different vendor than the Proposer — therefore
+  runs on two sessions rather than one. That is the free tier's own shape: `rateLimitsByModel` is keyed
+  per model because each has its own daily allotment.
+- **The CLI runs one session per user, and the desktop is the one that has slots.** "Never returned to
+  CLI/web, which run one session per user", in the type's own words, while the desktop gets a slot-bound
+  and three multi-tab sessions. So the single-slot problem is the CLI's shape and the one this work had
+  to solve. Freebuff's own client models it with an owner file
+  (`~/.config/manicode/freebuff-instance-owner.json`, `{instanceId, pid}`), and the CLI treats a dead pid
+  as a superseded instance.
+
+Given one slot, the operator chose **reuse, never take over**, and `freebuff-session.ts` implements four
+states rather than the obvious two:
+
+| what the account holds | what Windbreak does |
+|---|---|
+| nothing | admits a session, and releases it when the command ends |
+| a live slot for **this** model | adopts that instance, and never releases it |
+| a live slot for **another** model | refuses, naming the holder's model, and admits nothing |
+| an owner file whose process is gone | admits — a stale file must not cost a run the seat it is entitled to |
+
+The release rule is the same idea from the other side: only sessions this process admitted are `DELETE`d,
+because ending somebody's chat to finish a scan is not a trade a scanner gets to make. The state is
+read from the owner file and the pid is checked the way the CLI checks it (`process.kill(pid, 0)`, with
+`EPERM` counting as alive).
+
+#### 20.41.4 Two refusals the first live run produced
+
+With the session layer wired in, the `Out of credits` 402 was gone and the request reached the free
+gate — which refused it twice, for two different and more specific reasons.
+
+**First, the slot rule worked, and that is observable.** The refusal named the holder:
+
+> another process holds Freebuff session `3450f71b-…` for `deepseek/deepseek-v4-flash`, and a session is
+> bound to one model. Windbreak will not take it over. End that session, or wait for it to expire, then retry.
+
+That is also the first evidence of the constraint in the operator's own environment rather than in a
+type: the chat holding DeepSeek blocks Windbreak's GLM-backed Triage role entirely, and it is not a bug
+in the reuse policy — it is what one model-bound slot per account means.
+
+**Second, free mode admits only Freebuff's own root agents.**
+
+```
+{"error":"free_mode_invalid_agent_model",
+ "message":"Free mode is only available for specific agent and model combinations."}
+```
+
+Windbreak sent `windbreak-triage` and `windbreak-proposer`; the gate knows `base3-free-deepseek-flash`
+and its siblings. `common/src/constants/free-agents.ts` warns about exactly this on
+`FREEBUFF_WEB_BASE3_AGENT_ID_BY_MODEL` — *"that root's allowlist rejects the requested model with
+`free_mode_invalid_agent_model`"* — and the constant is server-owned, so the fix is to declare the
+bundled root for a role's model and keep everything else (prompt, output mode, output schema) ours.
+
+`src/freebuff-agents.ts` is that map, and its cost is stated rather than hidden, in the module's own
+docblock: a run's `agent_id` is no longer `windbreak-<role>`, so a live call is indistinguishable
+upstream from an ordinary Freebuff turn on that model. Windbreak's own attribution does not rest on it —
+the verdict cache is keyed and stored with `role`, `model_id`, `provider` and `prompt_template_version`
+(`pipeline/cache.ts`), and a candidate carries a `model_id` of its own — but anything reading `agent_id`
+upstream will see the Freebuff root rather than this tool. An unmapped model is refused **before** the provider is
+reached, and `freebuff-agents.test.ts` pins the shipped configuration against the map so that pointing
+a role at an unsupported model fails a test rather than an engagement.
+
+#### 20.41.5 The answer, and why the work stopped there
+
+A correctly-formed request — a live session, the bundled root agent id, `costMode: 'free'`, the instance
+id in `codebuff_metadata` — was still refused:
+
+```
+403  {"error":"free_mode_cli_required",
+      "message":"Free mode is only available through the freebuff CLI. Install it with
+      `npm i -g freebuff`, then run `freebuff`. Calling the API directly is not supported
+      and may get your account banned."}
+```
+
+So the boundary is not agent-and-model after all. **Free mode is scoped to the Freebuff CLI as a
+caller**, and a request from anywhere else is refused however well-formed it is. This is a product
+decision rather than a gap in the request: the free tier is funded by sessions and ads, and it is
+scoped to the client that product ships.
+
+**The probe was stopped there, deliberately.** The refusal names a ban as the consequence, on the
+operator's own account, and no diagnosis is worth that. The marker that makes a request "the CLI" is
+**not in this repository** — the error string does not appear in this tree, and the CLI's own client
+(`cli/src/utils/codebuff-client.ts`) passes nothing free-mode-specific: apiKey, BYOK, cwd,
+`includeHomeSkills`, agent definitions, a logger, a trace writer, the terminal broker and tool
+overrides, none of which is an attestation. So the question cannot be answered by reading this
+codebase, and it will not be answered by guessing at a live endpoint that threatens the account.
+
+What remains untested is narrower than it looks, and the distinction is one the code does **not**
+currently make. The probe was a bare client in a script, which is exactly the case the message names.
+But being in the CLI's process is not the same as running on the CLI's client: §20.37's bridge builds
+**its own** client through `createWindbreakClient` — the queue screen passes no `client` — so a turn in
+that pane today makes the same kind of request the probe made, from inside the same binary. Whether
+the gate keys on the process, on the client object, or on the token is the unknown; the seam already
+accepts an injected client (`CreateQueueInvestigatorInput.client`), so the experiment is to hand it
+the CLI's. That is a change to make deliberately, not a property that is already true. *Both hosted
+entry points were handed one since; see §20.41.7.*
+
+#### 20.41.6 What was kept, what was reverted, and the regression in between
+
+**Kept.** The session client (admission, reuse, release, refusals classified into kinds rather than
+strings), the agent map with its data test, and a **seam for a hosted caller**: `WindbreakModelHost`
+(`client` + `sessions`) with `resolveModelHost`, honoured by `ScanOptions.modelHost` and `launchScan`
+for the scan and by `client`/`sessions` on the review bridge. The ownership rule is in the type rather
+than in a comment — a borrowed host carries **no `close`**, so the stage that borrows it has nothing to
+call and cannot release a session it did not open. That matters because the two hosted entry points are
+where the CLI-as-caller question is tested, and a stage that resolved its own transport would make the
+seam decorative: against a caller-restricted free tier it would also be refused at the provider. *Both
+then started passing a host (§20.41.7).*
+
+One further change is right regardless of billing: **a caller has to say which billing a call is
+instead of defaulting into one.** `sessions` is required
+on `createSdkModelInvoker` and on `InvestigatorOptions` — the two entry points that own a
+`client.run` — and deliberately *nullable* rather than optional on the review bridge and the CLI's
+queue investigator, where a screen has to exist without credentials; both of those refuse the turn
+rather than bill it. What the types no longer permit is the shape that caused this: a construction
+that never mentions billing at all.
+
+**Reverted.** The first version made the free path the *only* path — sessions required and always
+`costMode: 'free'` — which meant a credits account could not run a model stage at all. That is strictly
+worse than where the work started, and it was found by running the probe rather than by reading the
+diff. The metered path is the default again, and free mode is opt-in through `WINDBREAK_FREE_MODE=1`,
+with the reason it is off stated in the option's own docblock. The session layer stays behind it because
+the transport is *correct* — what fails is an authorization decision the server makes about the caller,
+not the request — and the one caller it is for is the CLI-hosted case above.
+
+**Corrected.** `provider-failure.ts`'s "always metered" sentence is replaced with what the two kinds of
+refusal now mean: a `credits` refusal is the metered path meeting an empty balance, and free mode is not
+an alternative for a batch run.
+
+#### 20.41.7 The wiring: the CLI runs its own stages
+
+**The seams are used.** This is the change §20.41.9's second open item said had to come first, and it is
+small: both hosted entry points now hand over **this CLI's own client and this CLI's own live Freebuff
+session**, so nothing inside the CLI builds a WindBreak transport any more.
+
+| where | how the host arrives |
+|---|---|
+| §20.36's scan view | `WindbreakScanScreen`'s `hostResolver` (default `createCliModelHost`) resolves it before the run; the runner's input carries it and the default runner passes it to `launchScan` |
+| §20.37's queue bridge | `createQueueInvestigator` resolves it when neither `client` nor `sessions` was injected — the branch that used to call `createWindbreakClient` |
+
+**The host is read, not opened.** `cli/src/windbreak/model-host.ts` lends `getCodebuffClient()`'s client
+— the object a chat turn runs on, project root, agent registry and tool overrides included — and answers
+what this process holds right now. The protocol that turns that answer into a billing decision is a new
+windbreak builder, `createHostedSessions`, and it is windbreak's rather than the CLI's on purpose: reuse
+the host's session, refuse a model the session is not bound to, refuse when the host holds nothing, and
+**release nothing** — the host admitted the session and the host ends it, so `release` is a no-op and a
+scan that called it could not end the chat it was launched from. The alternative to a session is stated
+rather than inferred: a credits build hands over `createMeteredSessions`, without consulting the
+free-session store, so who pays is a decision at the call site instead of whichever state happened to be
+in memory.
+
+**The wiring is assertable at the place it can be wrong.** The scan runner's input carries the host,
+because "which caller the call is made by" is part of what the run *is* — a view that resolved one and
+passed nothing would be indistinguishable from the shape §20.41.5 is trying to rule out. Both new
+failures are also named rather than thrown: a resolver that answers `null` is passed on as `null` (the
+launcher then resolves from the environment and reports the credentials failure in its own stage table),
+and the bridge turns the same `null` into the sentence the pane shows. What the CLI cannot do any more is
+what this section is about: make a first-class request from inside the CLI.
+
+#### 20.41.8 Verified
+
+- **The 402's cause, reproduced and then removed.** With a session attached, the failure stopped being
+  `Out of credits` and became a gate refusal naming either the holder's model or the agent/model
+  combination. The billing refusal returned when the metered default was restored, which is what makes
+  the diagnosis a mechanism rather than a correlation.
+- **The slot policy, live.** A run with the operator's own chat holding a DeepSeek session adopted that
+  instance for the DeepSeek-backed roles and refused for the GLM-backed one, naming the holder and the
+  model — the two behaviours `freebuff-session.test.ts` pins, observed against the real endpoint.
+- **Fails closed, in both directions.** A server that cannot start a session (`404`/`405` on admission)
+  is an error rather than a metered call; a `200` carrying no instance id is a refusal rather than a
+  session. Both are cases where the convenient reading is the defect.
+- **The suite.** 1537 tests in this package, 0 failures, typecheck clean, with the CLI's WindBreak
+  surfaces covering the other side (the scan view, the queue screen, the bridge and the host). The
+  free-session protocol is covered by 19 tests with an injected `fetch` — admission, reuse, per-model
+  leases, never-take-over, stale owner file, a memoized refusal, release-only-what-we-admitted, the
+  metadata key name spelled out, the metered path asserted to carry no session rather than a blank one,
+  and the hosted builder's four rules.
+- **The map is pinned to the configuration.** Four data tests: every configurable role's default model
+  has a free agent, an unmapped model is refused with the usable ids named, and the two default models
+  resolve to two different roots — because §5.2's gate requires the Proposer and Refuter to differ.
+- **The wiring, asserted where it can be wrong (§20.41.7).** The scan view hands its runner the host its
+  resolver returned, and the bridge runs a turn on the host it is given — the second one reaching an
+  injected client that no credential resolution could have produced, which is what makes "it ran on the
+  host" an observation rather than a reading of the diff. The hosted-session rules are covered in
+  windbreak (adopt the matching model, refuse a different one by name, refuse once the session has ended
+  rather than send a stale instance id, release nothing) and the CLI's own tests cover the process side:
+  the instance and model read off a live slot, `null` for both non-slot states, the selected-model
+  fallback for the locally synthesised grace-window state, and a credits build handing over the metered
+  path without reading the free-session store at all.
+- **A defect the CLI suite had been sitting on, found by running the file.** Two queue-bridge tests
+  injected a `client` **without** `sessions`, and by §20.41's own rule that pair is a turn the engine
+  refuses rather than bills — so both were asserting `turn.ok === true` and a recorded turn against a
+  call that was never made. They passed when written and failed the moment anything ran them, which is
+  the kind of failure a suite reports only if someone runs that file; the pair is now injected together,
+  as the bridge's own contract says it must be.
+
+#### 20.41.9 Open items
+
+- **What marks a request as the freebuff CLI is unknown from here.** The rule is server-side (`freebuff-private`):
+  the error string does not exist in this tree, and the CLI's client construction carries nothing
+  free-mode-specific. Until that is known, no batch command can conform, and guessing at it live risks
+  the account.
+- **The CLI-hosted experiment is now wired but has still not been run.** §20.41.7 hands a stage the
+  **CLI's** client and the session this process holds, which is the one difference between the probe's
+  request and a hosted one; what is still unknown is whether the gate keys on the **process**, on the
+  **client object** or on the **token**. If it keys on the process, the pre-wiring code already answered
+  it and this change was unnecessary; if it keys on the client, this was the whole fix. The run is a
+  conversation started in the installed binary and driven through `/windbreak` or `/scan` until a turn
+  answers — deliberately a task to start on purpose rather than at the end of a session, since it needs
+  tmux, the binary and a live account, and its result decides which of those two sentences replaces this
+  item.
+- **The free path is unexercised end to end, and *admission* was never observed live either.** No run
+  has completed a model call through free mode. What the live runs did exercise is a **reused** slot —
+  the request carried a real instance id and reached the gate — and a **refused** one, where another
+  process held the slot for a different model. A windbreak admission (`POST` on the admission path) was
+  never attempted successfully, because the first role to ask was the GLM-backed Triage and the account
+  held DeepSeek; when the metered default was restored, the free path stopped being reached at all. So
+  `openFreebuffSession`'s admission branch, its refusals and its release are covered by tests with an
+  injected `fetch`, and by nothing else.
+- **A refused session costs the operator a sentence, not a fallback.** Windbreak will not take over a
+  chat's slot and will not silently meter instead, so the outcome of a contended slot is a failed run.
+  Whether a batch command should instead queue, or degrade to discovery-only, is unbuilt.
+- **`UNMETERED_MODEL_IDS` is still the same list, and the name of it is now the only thing wrong.** The
+  comment above it has been rewritten — it no longer claims a scan is free, and says instead that the
+  list buys the cheapest per-token model while nothing about a scan is free — but the constant's name
+  still asserts the property that started this section, and renaming it would touch a model table, a
+  `config` command description and a test. Kept, with the reason recorded here rather than silently.
+- **The README's model-routing paragraph now says a scan is not free, and still cannot say what it
+  costs.** *"A scan bills the account's credits"* is the part that is known; the number depends on the
+  first item — if a CLI-hosted turn turns out to be admitted, the same paragraph is wrong in the other
+  direction, and that is a paragraph to write once rather than twice.
+
+---
+
+*This document is the plan, and the implementation has caught up to it. It was written to be worked through before implementation; where a section's prose and §20 disagree, §20 describes the code that exists. Claims that later work overtook are marked in place (`*built since; see §X*`) rather than deleted, so a reader can tell a superseded statement from an oversight. The scaffold (§20.4), the sandbox + build step (§20.6), recon (§20.7), OSV correlation (§20.8), the baseline engines stage (§20.9), the candidate pipeline (§20.10), reporting (§20.11), the pattern library (§20.12), the `scan` orchestrator (§20.13), the adjudication screen (§20.14) — with its mouse and scrolling behaviour (§20.15) and its layout and palette (§20.16) — are in place and verified, as is D16's deferral (§20.17) with the request/services handoff seam it required (§20.20), the `eval` scoring core (§20.18), Tier 1's function-level corpus (§20.19), §4.4.1's patch-mined discovery (§20.21) — the MVP feature D5 named and the only §3.2 capability that had been missing — §4.4.3's check-to-use / race module (§20.22), the flagship capability, with the one interpretation §4.4.3 left open recorded against its own claim rather than papered over, and §4.4.3's CWE-364 signal-handler machine (§20.23) — the one race family those four FSMs cannot express, and the one whose shapes MITRE enumerates itself. §6's C/C++ scope was then widened for the program model alone (§20.24), which found a recall hole in the C++ index that had been there since §20.7 and pinned the C-shaped sweeps to the languages whose tables they actually are, so that a Python repository reports how much of itself went unswept instead of looking clean — that number now printed as its own line beside the candidate counts rather than only as a warning (§20.24.5). §20.24.7 then makes the next language affordable: the single `DETECTOR_LANGUAGES` constant became a per-detector capability matrix, so a language is swept by the detectors whose tables it has — and one only some of them cover is reported as *partly swept* with the missing detectors named, rather than rounded to swept or unswept. The shipped matrix is still C and C++ everywhere, so detection is unchanged; what changed is that adding a language is now one entry on one list, and the report says which detectors skipped a language rather than only how many callables went unread. D22's corpus is now whole (§20.25): the private list shipped with §20.18 and `fetch` materializes its snapshots at the pinned revisions, blobless so that the two miners still have a history to mine. The model path has then been driven **live** for the first time (§20.26) — a complete scan, `exit 0`, 2 triaged, 1 cross-model-verified, 1 CWE-120 finding written — which is how three defects in `pipeline/invoke.ts` were found: a tool list that removed the only channel `structured_output` reads, an instruction telling the model not to use the tool the runtime requires, and a step ceiling that made the runtime's own retry unreachable. All three were invisible to the fake-invoker suite by construction. That run also left a requirement no section wanted to own — eight exported environment values before a model call may even be attempted — and §20.27 removes it, with the note that the first attempt failed because the fix imported the very module whose snapshot it had to precede. §20.28 then revisits §20.14.1's first honesty rule — a missing database used to be refused with a non-zero code, and now opens the screen with the path marked *not found*, because the screen has room to name the state and the refusal did not. §20.29 is the one section written as a **plan rather than a record** — an investigator that can read and execute in the target, inside the adjudication screen — and it is marked as such where it sits, with the two invariants it touches named rather than discovered later; **its first four slices are now built** (§20.29.7): a mediated workspace that confines every read to the target and runs every command in the sandbox, five owned custom tools with §5.1's neutralization extracted rather than reimplemented, an agent whose prose output cannot be read as a verdict, a recorded transcript in a table of its own (`investigator_turns`, schema v6) that `runVerification` does not query, and a `propose_candidate` channel whose candidates enter §4.5 at `state: 'new'` stamped `investigator` — with the "not an engine match" claim §20.29.4 requires actually made in the prompt's provenance line, the writeup, the SARIF result, and a `modelProposed` funnel column. The role needed a distinction rather than a union member: the investigator is configurable and recordable while staying out of `ModelRole`, which is what the verdict path accepts, and that containment is asserted at compile time. Two live runs found three defects the fake-client suite could not — a prompt that told the model to report in prose instead of proposing, a turn that reported `ok: true` with no answer at all, and a step ceiling measured too low. **Slice 5 puts it in the screen** — `c` in the adjudication screen opens a chat in the decision card's slot (*superseded: §20.32 moves it to the body, with the queue kept as a rail*), `/hunt` for the target and a plain question for the selected row, with every turn recorded and the screen still constructing no client of its own — so **D32's row is now marked false at the point of the claim**, exactly as §20.29.3 said it would be. **Slice 6 closes the section** — a per-conversation ceiling in model calls, counted from the provider's own usage reports with a floor of one per turn, one budget shared by a hunt and an explain, a `windbreak.config` row the screen actually reads, and `esc` stopping a turn in flight and reporting it as `cancelled` rather than `failed` — which is the last item §20.29.6 left open and the thing that makes the pane safe to leave open. §20.29.8 then gives the cold start a face: the renderer is built first, a small loading view names what is being waited for and the database path, and only then is the bridge constructed — with the two gates that make a frame actually reach the terminal (a `flushSync` commit and a bounded `renderer.idle()` draw) found by running it, and asserted on captured frames rather than on call order. §20.30 then puts the code beside the queue: `f` lists the target's file inventory — what recon **indexed**, not a directory walk, so the files on screen are the same set the findings are about — in the detail pane's slot, with the target and pinned commit in its header, the dropped rows printed when the listing is capped, and its three empty states (no target, an empty inventory, a populated tree) said three different ways rather than collapsed into one empty pane. Its second slice is where the editing lands: a writable *copy* of the target that models may patch and rebuild, reached by `tab` from the same pane, while the target itself stays a read-only bind — **the artifact a finding cites has to remain the artifact a reader can re-examine**, and that is the one property security research can least afford to lose. The copy, the three write tools, the two agents' separate tool lists, and schema v7's `working_copies` are built and verified (§20.30.1 records what is still open). §20.31 then answers the question that entry left open — `windbreak` in a checkout nothing has scanned now opens on **that repository**, because the screen resolves the git root (falling back to the working directory) and the pane falls back to a filesystem walk when the database has no target to show; the walk reuses recon's own `collectInventory`, so both sources share one answer to what a source file is, and it is **labelled as unscanned** in a warned header line rather than passed off as the inventory the findings are about, which is the rule §20.30 chose the inventory for in the first place. The models read the same directory through a fallback root that a run's own target always overrides, and the scratch goes to the system temp dir because an unscanned checkout has no `.windbreak` and writing one would be a change to a tree the screen is only reading. What such a checkout cannot do is now said outright rather than discovered: there is no run, so turns are not recorded, candidates cannot be created, and the engineer is refused — writing being recorded is what §20.30's engineer *is*, and attribution needs a run. §20.32 then follows where §20.31's fallback left the screen usable: `c` gives the chat the body instead of a card-sized slot, the queue stays as a narrow rail that is dropped rather than squeeze the prose, and — the part that was a real defect rather than a preference — the transcript **wraps** where it used to truncate, so a model's paragraph is read instead of arriving as its first clause and an ellipsis. Wrapping happens where the lines are built so the pane's row-based scroll counts the rows that exist, and the hint row is the chat's own because the browse keys are inert while the input owns the letters. §20.33 then makes the command a **passage rather than a destination**: a bare `windbreak` opens a start menu — run a scan, browse the files, resume a previous run — instead of §5.3's queue, with the repository and the database named above the rows before anything is chosen. The scan runs **in this process** (the interactive budget decider reads stdin, which the renderer owns, so `yes: true` is correctness rather than a default), streams the run's own log, and reads its stage from the run's own announcements; a continuation takes its checkout from the run rather than the working directory, exactly as the batch `resume` does. The queue becomes a screen *under* the menu reached through a run or the whole-database row, `--run` still skips the menu so the batch contract is unchanged, and a finished scan keeps its summary — a deliberate departure from the interview's "land on the dashboard", because the summary is a run's only record of its warnings and of whether `0 candidates` means clean or unswept. §20.35 then reverses the plan's own last decision: D21 kept v0.1 out of the fuzzing business and §16 put step 11 last as *out of MVP scope*, and the interface §12.4 preserved is now the thing it was preserved for — `windbreak confirm` generates a libFuzzer target for a finding, compiles and runs it **inside the sandbox** with the checkout bound read-only, and records what manifested in a table of its own (schema v8). The gates are the design: a class is confirmable only if one run can settle it (twelve do, eight are refused with their reasons, and races are refused because *a single run cannot disprove, so it cannot confirm*), and a crash counts only when the sanitizer's own category matches the class **and** the report lands in the finding's own file or function — because the symbol index stores no parameter list, so a generated target calls a callee whose signature it cannot know, and a mismatched call segfaults just as convincingly as a real defect. Four defects were found by running it and none by reading it: `-O1` deletes the very store a defect consists of, C23 makes the empty parameter list mean `void`, ASan cannot symbolize without `llvm-symbolizer`, and `addr2line` cannot read clang 22's default DWARF. The result is a fourth tier — `statically-verified` < `dynamically-confirmed` < `human-reproduced` — that never demotes, because a bounded run that finds nothing is silence rather than disproof, and `build-failed` is kept apart from `not-reproduced` so a broken machine cannot read as a clean finding. §20.34 then takes the one failure that was arriving as *evidence about the target* and says it as a fact about the account: a depleted balance or a rejected credential is classified once (`provider-failure.ts`, two kinds with two different fixes, from the two message shapes the live backend actually produces), carried on the turn that met it, held by the bridge until a call goes through rather than for one turn, reaching the composer's out-of-credits takeover — which now reads the refusal that carries no status as well as a 402 — and stated **once on `ScanResult`** — above the stage table in both batch summaries — instead of as one true `warning:` per candidate among a hundred identical ones. §20.36 then puts a **scan back on screen without bringing the screen back**: retiring the custom TUI took §20.33's first row with it, so the scan is a *view inside the chat app* — four files on the seam `/review` already uses, calling the `launchScan` that the same retirement had orphaned — with the session's checkout as its subject and the config's database as its destination, the batch summary extracted so one function renders a run on both surfaces, and `esc` refused while the run is in this process because `launchScan` has no cancel and the summary is the one thing worth keeping. §20.37 then gives the *other* half of that command a surface, and the stronger claim: `/windbreak` opens §5.3's queue and records each decision from the keystroke through `recordAdjudicationDecision`, so the rationale is the researcher's text rather than a model's sentence about it — with the two views sharing one discriminator (both open at once would make the second unreachable), both model answers shown in full beside the §5.1 injection signals, the four nothings of §18 (refused, missing, empty, all decided) said four different ways, the scan's own subject resolver choosing the database so a configured one is read rather than the conventional default, and two defects found by running it rather than reading it — a refusal that did not name the file it was about, and copy hand-wrapped for one width and broken mid-clause by a narrower terminal. §20.38 then gives §20.29's orphan a way in — `c` in the queue opens a recorded conversation about the selected row, with the credentials resolved into a sentence the pane shows rather than an exception inside a render, a second WAL connection so the queue keeps its own reads, the ceiling read from the config the subject actually resolved, five defects found — four by pinning the pane's honesty rules in tests, and one, a `maxSteps` the engine never received because a spread hid the wrong key name from the typechecker, by reading the option names against the engine while setting that run up — and its first live conversation, which resolved credentials for real, recorded both turns, carried the provider's 402 as a classified billing refusal and left the candidate's state alone, but never got an answer because the account is out of credits. §20.39 then asks the question none of the producers asked: §4.4.4's reachability — an entry-point inventory stored with the reason each entry counts, a closure that keeps *no path* apart from *path unknown* by tainting everything below an incomplete caller set, one gate that only a completed search may close, and a finding that says which entry an attacker arrives through and how far it is from there — then
+checks it against a repository it did not seed, zlib at `d81c2d7`, where a recursive method called
+only through a qualified name came back `unreachable` until the qualified tail became a taint root
+too (§20.39.8). **§20.40 then measures the thing all of that rests on** — the committed rule set, scored for the first time against 267 vulnerable/patched function pairs mined from real CVE fix commits in curl, libarchive and libxml2 — and reports the number it found rather than the one the project would have preferred: 0.105 sensitivity, 0.011 discrimination, and four of the seven rules that never fired at all. The corpus is mined rather than chosen (the index is the commit message, the vulnerable revision is the fix's parent, the unit is the function the diff touched, and prose-only pairs are dropped by a lexer so that a reformat is never seeded as a bug), it is checked in so scoring needs no clone and no network, and it is shaped to score the other detectors too — none of which has been measured this way yet. What the figure says is not that the rules miss defects, which was known, but that they fire on the **shape** rather than on the defect: 18 firings on the vulnerable half against 16 on the fixed one, with `dprintf_formatf` firing because it is full of `sprintf` in both revisions, and `Curl_smtp_escape_eob` firing because the `malloc(2 * …)` shape outlived the multiplier the fix corrected. **§20.41 then chases the reason the model half answers `Out of credits`
+at all**, on the operator's report that Freebuff is free and Codebuff is not, and finds a real defect and
+a real boundary in that order: every call windbreak made was a metered call that never named a session
+(`costMode` absent, so the SDK sent `'normal'`; no `freebuff_instance_id`, so the server had no session
+to admit it against), while `models.ts` called those models unmetered and `provider-failure.ts` called
+them always metered — the defect written in the register of a deliberate decision. The session layer that
+fixes the transport is built and pinned by tests, the reuse-never-take-over rule for the account's single
+model-bound slot is in the operator's own terms, and the bundled root agent ids free mode requires are
+mapped and covered by a data test against the shipped configuration. What the work then found is that the
+transport was never the whole story: a correctly-formed free request is refused with `403
+free_mode_cli_required`, *"Free mode is only available through the freebuff CLI … Calling the API directly
+is not supported and may get your account banned."* Free mode is scoped to Freebuff's own client, the rule
+behind that is server-side and absent from this tree, and the probe was stopped on the refusal's own
+warning rather than followed any further — so the free path is opt-in, the metered path is the default
+again (the first version made free the only path and would have left a credits account unable to run a
+model stage at all, which running it is what caught), and whether a stage hosted *inside* the CLI is
+admitted where a direct call was refused is the second of §20.41.9's open items — now wired (§20.41.7),
+with the CLI lending its own client and the session it holds, and still unrun. **§7.3's command list is implemented**, `fetch` included: `prepare` (§6.3) and `eval` (§11, both tiers) were the last two placeholders, and `fetch` and `confirm` (D21's reversal, §20.35) are the two commands added since that list was first written. §17's remaining open items, §20.5, and the open items in §20.6.3–20.6.4, §20.7.2–20.7.5, §20.8.2, §20.9.3, §20.10.3, §20.11.3, §20.12.6, §20.13.6, §20.14.5, §20.15.4, §20.16.6, §20.17.4, §20.18.9, §20.19.8, §20.20.6, §20.21.6, §20.22.7, §20.23.6, §20.24.6, §20.25.6, §20.26.6, §20.27.7, §20.28.5, §20.30.1, §20.31.1, §20.32.1, §20.33.7, §20.34.5, §20.35.9, §20.36.7, §20.37.6, §20.38.6, §20.39.7, §20.40.6 and §20.41.9 are the live unknowns — §20.29.6's last two went with slice 6, so that section is no longer on the list. §20.24 is the one section that is deliberately *half* of what was asked: indexing eleven languages is finished and verified, and detecting in them is the per-language work §20.24.6 enumerates. §20.22.1 is the one item in that list that is a question about *scope* rather than a known limit: §4.4.3 says "four known patterns" and never names them. §20.23 is the counter-example that shows the difference — CWE-364 names its own behaviours, so that section's shapes carry no such caveat, and what it records instead are limits of the analysis rather than questions about what to build.*

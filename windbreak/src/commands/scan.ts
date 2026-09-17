@@ -1,10 +1,5 @@
 import { loadEffectiveConfig } from '../config'
-import {
-  describeProviderFailure,
-  formatInterproceduralCoverage,
-  formatLanguageCoverage,
-  runScan,
-} from '../scan'
+import { runScan, scanSummaryLines } from '../scan'
 import { openStateDatabase } from '../state/db'
 import { VERSION } from '../version'
 import {
@@ -42,90 +37,15 @@ interface ScanCommandOptions {
   json?: boolean
 }
 
+/**
+ * Print the summary the TUI renders.
+ *
+ * One write rather than a line at a time, and the text is identical either way: the lines
+ * carry their own blank rows, and `scan/summary.ts` exists so this command and the in-TUI
+ * view cannot drift into two accounts of the same run.
+ */
 const renderSummary = (result: ScanResult): void => {
-  console.log(`\nrun id:       ${result.runId}`)
-  console.log(`target id:    ${result.targetId}`)
-  console.log(`commit:       ${result.commitSha}`)
-  console.log(`status:       ${result.status}`)
-
-  // §18, and stated before the stage table rather than after it: when the account was
-  // refused, that is the reason the model stages look the way they do, and a reader who
-  // stopped at `partial` would go looking for a bug in the target instead.
-  //
-  // The per-candidate `warning:` lines below are left alone on purpose. Each one is a real
-  // candidate left unexamined, and a summary that dropped them would be claiming a net the
-  // run did not have — the wall of them is exactly why the cause needs saying once, up here.
-  if (result.providerFailure) {
-    console.log(`\nBLOCKED: ${describeProviderFailure(result.providerFailure)}`)
-  }
-
-  console.log('\nstages:')
-  for (const stage of result.stages) {
-    const seconds = `${(stage.durationMs / 1000).toFixed(1)}s`.padStart(8)
-    console.log(
-      `  ${stage.stage.padEnd(15)} ${stage.status.padEnd(9)} ${seconds}  ` +
-        `${stage.detail ?? stage.reason ?? ''}`,
-    )
-    if (stage.detail && stage.reason) console.log(`  ${' '.repeat(15)} ${stage.reason}`)
-  }
-
-  console.log('\ncandidates:')
-  // Three producers feed one worklist, and naming only some of them would make the
-  // total look wrong. The breakdown is printed rather than just the sum because
-  // "engines found nothing" and "patch mining found nothing" are different
-  // statements about a target.
-  console.log(`  from discovery             ${result.counts.candidates}`)
-  console.log(`    of which patch-mined     ${result.counts.patchMined}`)
-  console.log(`    of which variant-hunt    ${result.counts.replays}`)
-  console.log(`  triaged                    ${result.counts.triaged}`)
-  console.log(`  confirmed                  ${result.counts.confirmed}`)
-  console.log(`  dropped                    ${result.counts.dropped}`)
-  console.log(`  escalated (needs review)   ${result.counts.escalated}`)
-  if (result.counts.rediscovery > 0) {
-    console.log(`  rediscovery                ${result.counts.rediscovery}`)
-  }
-
-  // §20.24.5: the summary's own copy of the pin's cost, beside the candidate
-  // counts rather than only in a warning. `0 candidates` immediately above must
-  // not be the last word on a repository whose callables the C-shaped tables
-  // never reached — that is the failure §18 names for the OSV stage.
-  console.log(`\n${formatLanguageCoverage(result.languageCoverage)}`)
-  // The call graph's denominator, for the same reason and with the same pair of
-  // numbers: an interprocedural sweep that reported nothing must not read as a target
-  // with no cross-function check-to-use pairs when the truth is a graph with no edges.
-  console.log(
-    formatInterproceduralCoverage({
-      callEdges: result.counts.callEdges,
-      callSitesSeen: result.counts.callSitesSeen,
-      callSitesUnattributed: result.counts.callSitesUnattributed,
-      callSitesAmbiguous: result.counts.callSitesAmbiguous,
-      callerGuardedSites: result.counts.callerGuardedSites,
-    }),
-  )
-
-  if (result.report) {
-    console.log('\nreport:')
-    console.log(`  findings                   ${result.counts.findings}`)
-    console.log(`  sarif                      ${result.report.sarifPath}`)
-    console.log(`  index                      ${result.report.indexPath}`)
-    console.log(`  not reported               ${result.counts.excluded}`)
-  }
-
-  for (const warning of result.warnings) console.log(`warning: ${warning}`)
-
-  if (result.status === 'complete') {
-    console.log('\nOK: scan complete.')
-    return
-  }
-
-  console.log(`\nWARN: scan ${result.status}.`)
-  if (result.resumeFrom) {
-    console.log(
-      `Resume with: windbreak resume --run ${result.runId} ` +
-        '--target <path>   (the first incomplete stage is ' +
-        `${result.resumeFrom})`,
-    )
-  }
+  console.log(scanSummaryLines(result).join('\n'))
 }
 
 const runScanCommand = async (

@@ -9,8 +9,16 @@ import { applySchema } from '../state/db'
 import { createReviewInvestigator } from './investigator'
 
 import type { CodebuffClient } from '@codebuff/sdk'
+import type { FreebuffSessions } from '../freebuff-session'
 import type { InvestigatorAgentName } from '../investigate/agents'
 import type { ReviewInvestigator } from './investigator'
+
+/** A session per model, with no network (spec §20.41). */
+const fakeSessions = (): FreebuffSessions => ({
+  costMode: 'free',
+  forModel: async (model) => ({ instanceId: `sess-${model}`, model, reused: false }),
+  release: async () => {},
+})
 
 const dirs: string[] = []
 const databases: Database[] = []
@@ -73,7 +81,7 @@ const answeringClient = (input: { calls: number; answer?: string }) => {
 }
 
 const bridge = (db: Database, client: CodebuffClient, maxConversationCalls: number) =>
-  createReviewInvestigator({ db, client, maxConversationCalls })
+  createReviewInvestigator({ db, client, sessions: fakeSessions(), maxConversationCalls })
 
 const ask = (
   investigator: ReviewInvestigator,
@@ -276,6 +284,7 @@ describe('an account-level refusal, stated at the pane level (§18)', () => {
     const investigator = createReviewInvestigator({
       db,
       client: null,
+      sessions: null,
       clientUnavailableReason: 'no model credentials are available',
     })
 
@@ -504,6 +513,7 @@ describe('an unscanned checkout (spec §20.31)', () => {
     const investigator = createReviewInvestigator({
       db: emptyDb(),
       client,
+      sessions: fakeSessions(),
       fallbackTargetRoot: repo,
     })
 
@@ -522,6 +532,7 @@ describe('an unscanned checkout (spec §20.31)', () => {
     const investigator = createReviewInvestigator({
       db: emptyDb(),
       client,
+      sessions: fakeSessions(),
       fallbackTargetRoot: repo,
     })
 
@@ -542,6 +553,7 @@ describe('an unscanned checkout (spec §20.31)', () => {
     const investigator = createReviewInvestigator({
       db: emptyDb(),
       client,
+      sessions: fakeSessions(),
       fallbackTargetRoot: repo,
     })
 
@@ -570,6 +582,7 @@ describe('an unscanned checkout (spec §20.31)', () => {
     const investigator = createReviewInvestigator({
       db,
       client,
+      sessions: fakeSessions(),
       fallbackTargetRoot: elsewhere,
     })
 

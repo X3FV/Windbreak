@@ -38,6 +38,8 @@ import { areCreditsRestored } from './components/out-of-credits-banner'
 import { PendingBashMessage } from './components/pending-bash-message'
 import { SessionEndedBanner } from './components/session-ended-banner'
 import { StatusBar } from './components/status-bar'
+import { WindbreakQueueScreen } from './components/windbreak-queue-screen'
+import { WindbreakScanScreen } from './components/windbreak-scan-screen'
 import {
   SuggestedPrompts,
   DEFAULT_SUGGESTED_PROMPTS,
@@ -71,6 +73,7 @@ import { useChatHistoryStore } from './state/chat-history-store'
 import { useChatStore } from './state/chat-store'
 import { useQueuePanelStore } from './state/queue-panel-store'
 import { useReviewStore } from './state/review-store'
+import { useWindbreakViewStore } from './state/windbreak-view-store'
 import { useFeedbackStore } from './state/feedback-store'
 import { useMessageBlockStore } from './state/message-block-store'
 import { usePublishStore } from './state/publish-store'
@@ -990,6 +993,27 @@ export const Chat = ({
     })),
   )
 
+  const { windbreakView, closeWindbreakView } = useWindbreakViewStore(
+    useShallow((state) => ({
+      windbreakView: state.windbreakView,
+      closeWindbreakView: state.closeWindbreakView,
+    })),
+  )
+  const scanViewOpen = windbreakView === 'scan'
+  const queueViewOpen = windbreakView === 'queue'
+
+  // Leaving either WindBreak view closes it *and* keeps its own one-line record in the
+  // transcript (§20.33: a finished scan keeps its summary; §20.37: a decision made by
+  // keystroke is still a decision somebody has to be able to read back). The view computes
+  // the line, because it is the only thing that knows how the run ended or what was decided.
+  const handleCloseWindbreakView = useCallback(
+    (summary: string | null) => {
+      closeWindbreakView()
+      if (summary) setMessages((prev) => [...prev, getSystemMessage(summary)])
+    },
+    [closeWindbreakView, setMessages],
+  )
+
   const { queuePanelOpen, openQueuePanel, closeQueuePanel } =
     useQueuePanelStore(
       useShallow((state) => ({
@@ -1003,10 +1027,10 @@ export const Chat = ({
   // flagged open behind them would keep chat's keyboard disabled with nothing
   // rendered to handle keys, so hand the surface back for real.
   useEffect(() => {
-    if (queuePanelOpen && (reviewMode || askUserState !== null)) {
+    if (queuePanelOpen && (reviewMode || windbreakView !== null || askUserState !== null)) {
       closeQueuePanel()
     }
-  }, [queuePanelOpen, reviewMode, askUserState, closeQueuePanel])
+  }, [queuePanelOpen, reviewMode, windbreakView, askUserState, closeQueuePanel])
 
   // The panel store outlives this component and a Freebuff session can end on
   // its own, unmounting chat mid-edit. Without this, the next session would
@@ -1047,6 +1071,14 @@ export const Chat = ({
 
       if (result.openReviewScreen) {
         useReviewStore.getState().openReviewScreen()
+      }
+
+      if (result.openWindbreakScan) {
+        useWindbreakViewStore.getState().openScanView()
+      }
+
+      if (result.openWindbreakQueue) {
+        useWindbreakViewStore.getState().openQueueView()
       }
 
       if (result.openQueuePanel) {
@@ -1597,6 +1629,7 @@ export const Chat = ({
     disabled:
       askUserState !== null ||
       reviewMode ||
+      windbreakView !== null ||
       queuePanelOpen ||
       sponsoredProposalMenuOpen,
   })
@@ -1688,6 +1721,7 @@ export const Chat = ({
     !feedbackMode &&
     !publishMode &&
     !reviewMode &&
+    windbreakView === null &&
     askUserState === null
 
   // Fire a one-time impression so we can measure onboarding-prompt usage
@@ -1776,6 +1810,7 @@ export const Chat = ({
   const dockTakeoverActive =
     askUserState !== null ||
     reviewMode ||
+    windbreakView !== null ||
     queuePanelOpen ||
     sponsoredProposalMenuOpen ||
     isFreebuffSessionOver
@@ -1940,7 +1975,23 @@ export const Chat = ({
           />
         )}
 
-        {reviewMode ? (
+        {windbreakView !== null ? (
+          // WindBreak's two views are takeovers like `reviewMode`, and they are checked first
+          // because the scan is the only one of them that owns a resource: a scan in flight
+          // cannot be handed to another view and finished later, so the surface it is running
+          // on wins until the run lands or the process ends.
+          windbreakView === 'scan' ? (
+            <WindbreakScanScreen
+              repoRoot={getProjectRoot()}
+              onClose={handleCloseWindbreakView}
+            />
+          ) : (
+            <WindbreakQueueScreen
+              repoRoot={getProjectRoot()}
+              onClose={handleCloseWindbreakView}
+            />
+          )
+        ) : reviewMode ? (
           // Review and ask_user take precedence over the session-ended banner:
           // during the grace window the agent may still be asking to run tools
           // or asking the user a question, and those approvals/answers must be

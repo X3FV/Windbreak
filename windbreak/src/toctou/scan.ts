@@ -47,7 +47,7 @@ import { languageFilterSql } from '../detectors/capability'
 import { SourceCache } from '../engines/normalize'
 import { CALLABLE_KIND_FILTER } from '../recon/symbol-kinds'
 import { aliases, buildBindings } from './alias'
-import { buildCallGraph, readProgramModel } from './callgraph'
+import { buildCallGraph, readProgramModel } from '../interproc/callgraph'
 import {
   describeFsmFinding,
   describeInterprocFinding,
@@ -73,7 +73,7 @@ import { SIGNAL_SHAPES, TOCTOU_FSMS, handlerKey, signalProducer } from './types'
 import type { Database } from 'bun:sqlite'
 import type { DetectorId } from '../detectors/capability'
 import type { Bindings } from './alias'
-import type { CallGraph } from './callgraph'
+import type { CallGraph } from '../interproc/callgraph'
 import type { CalleePathSummary } from './interproc'
 import type { LockInterval } from './lockcontext'
 import type {

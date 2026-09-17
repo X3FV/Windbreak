@@ -83,6 +83,9 @@ export type CommandResult = {
   openChatHistory?: boolean
   openReviewScreen?: boolean
   openQueuePanel?: boolean
+  /** Open WindBreak's scan view on the session's checkout (§20.33's first row). */
+  openWindbreakScan?: boolean
+  openWindbreakQueue?: boolean
   preSelectAgents?: string[]
 } | void
 
@@ -686,15 +689,45 @@ const ALL_COMMANDS: CommandDefinition[] = [
       useChatStore.getState().setInputMode('plan')
     },
   }),
-  // /windbreak — work WindBreak's adjudication queue (§5.3). This is the whole
-  // surface now: `freebuff windbreak` used to mount a screen of its own, and
-  // both entry paths send the same brief (utils/windbreak-launch) rather than
-  // each carrying its own idea of what the queue is for.
+  // /scan — run a scan of this checkout **on screen** (§20.33's first row).
+  //
+  // A view rather than a prompt, and that is the whole point of it existing beside
+  // /windbreak: a scan started from the chat is otherwise a shell command whose output
+  // scrolls away, and the summary is a run's only record of its warnings and of whether
+  // `0 candidates` means clean or unswept.
+  //
+  // The subject is the session's own checkout — never the configured target, because this
+  // surface is not ambiguous about which repository it is about. The *database* is the
+  // configured one, so the run lands where `windbreak review` will look for it.
+  defineCommand({
+    name: 'scan',
+    handler: (params) => {
+      params.saveToHistory(params.inputValue.trim())
+      clearInput(params)
+
+      return { openWindbreakScan: true }
+    },
+  }),
+  // /windbreak — WindBreak's adjudication queue (§5.3, §20.37).
+  //
+  // Bare, it opens the queue on screen: a view that reads the same session the batch
+  // command reads and records the decision with the pipeline's own
+  // `recordAdjudicationDecision` when the researcher presses the key. That is the point
+  // of it existing beside the brief below — a verdict submitted through the chat is a
+  // command a model composed, and §5.3 makes the human's disagreement the tiebreak.
+  //
+  // With arguments it hands the brief to the agent, which is still the way to reach the
+  // rest of the surface (`--run`-scoped review, verification, reports): the view answers
+  // *what is queued and what did I decide*, and nothing sends a model to do a screen's job.
   defineCommandWithArgs({
     name: 'windbreak',
     handler: (params, args) => {
       params.saveToHistory(params.inputValue.trim())
       clearInput(params)
+
+      if (args.trim().length === 0) {
+        return { openWindbreakQueue: true }
+      }
 
       params.sendMessage({
         content: buildWindbreakPrompt(args),
@@ -703,6 +736,7 @@ const ALL_COMMANDS: CommandDefinition[] = [
       setTimeout(() => {
         params.scrollToLatest()
       }, 0)
+      return undefined
     },
   }),
   defineCommandWithArgs({

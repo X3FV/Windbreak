@@ -294,6 +294,15 @@ export const deriveCounts = (records: readonly StageRecord[]): ScanCounts => {
         counts.callSitesAmbiguous = at.callSitesAmbiguous ?? 0
         counts.callerGuardedSites = at.callerGuardedSites ?? 0
         counts.signalHandlers = at.signalHandlers ?? 0
+        counts.entryPoints = at.entryPoints ?? 0
+        counts.reachCallables = at.reachCallables ?? 0
+        counts.reachAttackerInput = at.reachAttackerInput ?? 0
+        counts.reachExposedApi = at.reachExposedApi ?? 0
+        counts.reachUnreachable = at.reachUnreachable ?? 0
+        counts.reachUnknown = at.reachUnknown ?? 0
+        counts.reachTaintRoots = at.reachTaintRoots ?? 0
+        counts.reachExternalCallees = at.reachExternalCallees ?? 0
+        counts.reachQualifiedCallees = at.reachQualifiedCallees ?? 0
         // Four producers feed the same candidate set: the engines, §4.4.1's
         // patch-mined sweep, §4.4.3's check-to-use stage, and §4.8's library replay.
         // They are counted separately in the stage record because they answer

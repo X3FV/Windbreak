@@ -16,8 +16,23 @@ import { ENGINEER_TOOL_NAMES, INVESTIGATOR_TOOL_NAMES } from './tools'
 import { createInvestigatorWorkspace } from './workspace'
 
 import type { CodebuffClient } from '@codebuff/sdk'
+import { freeAgentIdFor } from '../freebuff-agents'
+import type { FreebuffSessions } from '../freebuff-session'
 import type { ModelRoleConfig } from '../models'
 import type { InvestigatorWorkspace } from './workspace'
+
+/**
+ * A session per model, with no network.
+ *
+ * Required by `InvestigatorOptions` since §20.41: a turn with a client and no session
+ * is a metered turn, which is the defect, so the type refuses the construction rather
+ * than letting a test (or a caller) forget it.
+ */
+const fakeSessions = (): FreebuffSessions => ({
+  costMode: 'free',
+  forModel: async (model) => ({ instanceId: `sess-${model}`, model, reused: false }),
+  release: async () => {},
+})
 
 const roots: string[] = []
 
@@ -129,8 +144,13 @@ describe('the two agents (§20.30)', () => {
     const investigator = buildInvestigatorAgentDefinition(DEFAULT_INVESTIGATOR_MODEL, 'investigator')
     const engineer = buildInvestigatorAgentDefinition(DEFAULT_INVESTIGATOR_MODEL, 'engineer')
 
-    expect(investigator.id).toBe('windbreak-investigator')
-    expect(engineer.id).toBe('windbreak-engineer')
+    // Both run under the same Freebuff root agent: the gate matches agent id and model,
+    // and it is the model that decides which root is admissible (§20.41). Which windbreak
+    // agent this is stays in `displayName` and in the recorded turn.
+    expect(investigator.id).toBe(freeAgentIdFor(DEFAULT_INVESTIGATOR_MODEL.model))
+    expect(engineer.id).toBe(freeAgentIdFor(DEFAULT_INVESTIGATOR_MODEL.model))
+    expect(investigator.displayName).toBe('WindBreak investigator')
+    expect(engineer.displayName).toBe('WindBreak engineer')
     expect(investigator.toolNames).toEqual([...INVESTIGATOR_TOOL_NAMES])
     expect(engineer.toolNames).toEqual([...ENGINEER_TOOL_NAMES])
 
@@ -180,7 +200,12 @@ describe('the two agents (§20.30)', () => {
       },
     } as unknown as CodebuffClient
 
-    const turn = await createInvestigator({ workspace, client, agent: 'engineer' }).ask({
+    const turn = await createInvestigator({
+      workspace,
+      sessions: fakeSessions(),
+      client,
+      agent: 'engineer',
+    }).ask({
       prompt: 'write a harness',
     })
 
@@ -195,6 +220,7 @@ describe('the two agents (§20.30)', () => {
     const workspace = await makeWorkspace()
     const investigator = createInvestigator({
       workspace,
+      sessions: fakeSessions(),
       client: fakeClient({
         type: 'lastMessage',
         value: [{ role: 'assistant', content: 'nothing' }],
@@ -242,6 +268,7 @@ describe('one investigator turn', () => {
     const workspace = await makeWorkspace()
     const investigator = createInvestigator({
       workspace,
+      sessions: fakeSessions(),
       client: fakeClient({
         type: 'lastMessage',
         value: [{ role: 'assistant', content: [{ type: 'text', text: 'It is benign.' }] }],
@@ -273,6 +300,7 @@ describe('one investigator turn', () => {
 
     const investigator = createInvestigator({
       workspace,
+      sessions: fakeSessions(),
       client,
       toolOptions: { onResult: (record) => records.push(record.tool) },
     })
@@ -292,6 +320,7 @@ describe('one investigator turn', () => {
     const workspace = await makeWorkspace()
     const investigator = createInvestigator({
       workspace,
+      sessions: fakeSessions(),
       client: fakeClient({
         type: 'lastMessage',
         value: [{ role: 'tool', content: [{ type: 'json', value: {} }] }],
@@ -330,7 +359,11 @@ describe('one investigator turn', () => {
       },
     } as unknown as CodebuffClient
 
-    const turn = await createInvestigator({ workspace, client }).ask({ prompt: 'hunt' })
+    const turn = await createInvestigator({
+      workspace,
+      sessions: fakeSessions(),
+      client,
+    }).ask({ prompt: 'hunt' })
 
     expect(turn.ok).toBe(false)
     expect(turn.proposals).toHaveLength(1)
@@ -343,6 +376,7 @@ describe('one investigator turn', () => {
     const workspace = await makeWorkspace()
     const investigator = createInvestigator({
       workspace,
+      sessions: fakeSessions(),
       client: fakeClient({ type: 'structuredOutput', value: { real: true } }),
     })
 
@@ -356,6 +390,7 @@ describe('one investigator turn', () => {
     const workspace = await makeWorkspace()
     const investigator = createInvestigator({
       workspace,
+      sessions: fakeSessions(),
       client: fakeClient({ type: 'error', message: 'rate limited' }),
     })
 
@@ -372,7 +407,11 @@ describe('one investigator turn', () => {
       },
     } as unknown as CodebuffClient
 
-    const turn = await createInvestigator({ workspace, client }).ask({ prompt: 'hunt' })
+    const turn = await createInvestigator({
+      workspace,
+      sessions: fakeSessions(),
+      client,
+    }).ask({ prompt: 'hunt' })
     expect(turn.ok).toBe(false)
     expect(turn.error as string).toContain('socket closed')
   })
@@ -385,6 +424,7 @@ describe('an account-level refusal (§18)', () => {
     const workspace = await makeWorkspace()
     const turn = await createInvestigator({
       workspace,
+      sessions: fakeSessions(),
       client: fakeClient({
         type: 'error',
         message: 'Out of credits. Please add credits at https://www.codebuff.com/usage.',
@@ -409,7 +449,11 @@ describe('an account-level refusal (§18)', () => {
       },
     } as unknown as CodebuffClient
 
-    const turn = await createInvestigator({ workspace, client }).ask({ prompt: 'hunt' })
+    const turn = await createInvestigator({
+      workspace,
+      sessions: fakeSessions(),
+      client,
+    }).ask({ prompt: 'hunt' })
     expect(turn.failure?.kind).toBe('auth')
   })
 
@@ -417,6 +461,7 @@ describe('an account-level refusal (§18)', () => {
     const workspace = await makeWorkspace()
     const turn = await createInvestigator({
       workspace,
+      sessions: fakeSessions(),
       client: fakeClient({ type: 'error', message: 'rate limited' }),
     }).ask({ prompt: 'hunt' })
 
@@ -438,7 +483,11 @@ describe('an account-level refusal (§18)', () => {
       },
     } as unknown as CodebuffClient
 
-    const turn = await createInvestigator({ workspace, client }).ask({
+    const turn = await createInvestigator({
+      workspace,
+      sessions: fakeSessions(),
+      client,
+    }).ask({
       prompt: 'hunt',
       signal: controller.signal,
     })
@@ -468,7 +517,11 @@ describe('what a turn cost (§20.29.6)', () => {
       },
     } as unknown as CodebuffClient
 
-    const turn = await createInvestigator({ workspace, client }).ask({ prompt: 'hunt' })
+    const turn = await createInvestigator({
+      workspace,
+      sessions: fakeSessions(),
+      client,
+    }).ask({ prompt: 'hunt' })
 
     expect(turn.ok).toBe(true)
     expect(turn.modelCalls).toBe(2)
@@ -492,6 +545,7 @@ describe('what a turn cost (§20.29.6)', () => {
 
     const turn = await createInvestigator({
       workspace,
+      sessions: fakeSessions(),
       client,
       onUsage: (usage) => seen.push(usage.totalTokens),
     }).ask({ prompt: 'hunt' })
@@ -506,6 +560,7 @@ describe('what a turn cost (§20.29.6)', () => {
     const workspace = await makeWorkspace()
     const investigator = createInvestigator({
       workspace,
+      sessions: fakeSessions(),
       client: fakeClient({
         type: 'lastMessage',
         value: [{ role: 'assistant', content: 'done' }],
@@ -532,7 +587,11 @@ describe('cancellation (§20.29.5 slice 6)', () => {
       },
     } as unknown as CodebuffClient
 
-    const turn = await createInvestigator({ workspace, client }).ask({
+    const turn = await createInvestigator({
+      workspace,
+      sessions: fakeSessions(),
+      client,
+    }).ask({
       prompt: 'hunt',
       signal: controller.signal,
     })
@@ -553,7 +612,11 @@ describe('cancellation (§20.29.5 slice 6)', () => {
       },
     } as unknown as CodebuffClient
 
-    const turn = await createInvestigator({ workspace, client }).ask({
+    const turn = await createInvestigator({
+      workspace,
+      sessions: fakeSessions(),
+      client,
+    }).ask({
       prompt: 'hunt',
       signal: controller.signal,
     })
@@ -566,6 +629,7 @@ describe('cancellation (§20.29.5 slice 6)', () => {
     const workspace = await makeWorkspace()
     const investigator = createInvestigator({
       workspace,
+      sessions: fakeSessions(),
       client: fakeClient({ type: 'error', message: 'rate limited' }),
     })
 

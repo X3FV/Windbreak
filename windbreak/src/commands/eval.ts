@@ -1,26 +1,33 @@
 import fs from 'fs'
+import os from 'os'
 import path from 'path'
 
 import { MissingCredentialsError, SdkEnvironmentError, createWindbreakClient } from '../client'
 import {
+  createSemgrepBatchRunner,
   DEFAULT_MIN_RECALL,
   loadEvalInput,
+  renderRuleTierReport,
   runEval,
+  runRuleTier,
   runTier1,
   UnknownRunError,
 } from '../eval'
 import { renderEvalReport } from '../eval/report-text'
 import { renderTier1Report } from '../eval/tier1-text'
+import { resolveRulePaths } from '../engines/rules'
 import { createSdkModelInvoker } from '../pipeline'
 import { openStateDatabase } from '../state/db'
 import { DB_OPTION_DESCRIPTION, defaultDbPath, effectiveConfig } from './defaults'
 
 import type { Command } from 'commander'
+import type { EvalInput, PairSet } from '../eval'
 
 interface EvalCommandOptions {
   db?: string
   run?: string
   minRecall?: string
+  rules?: boolean
   json?: boolean
 }
 
@@ -56,8 +63,40 @@ export const registerEvalCommand = (program: Command): void => {
       `recall gate in [0, 1] for fixture lists (default ${DEFAULT_MIN_RECALL}, from D11)`,
     )
     .option('--no-cache', 'ignore the verdict cache (pair sets only)')
+    .option(
+      '--rules',
+      'score the committed rule set over a pair set instead of the model stages ' +
+        '(no provider, no database)',
+    )
     .option('--json', 'emit machine-readable output')
     .action(async (corpusPath: string, options: EvalCommandOptions & { cache?: boolean }) => {
+      let input: EvalInput
+      try {
+        input = loadEvalInput(corpusPath)
+      } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error))
+        process.exitCode = 1
+        return
+      }
+
+      // The rule tier reads a corpus and runs an engine. It needs neither the
+      // state database nor a provider, so it is handled before either is
+      // required — refusing it for a missing database would be a gate on a
+      // dependency it does not have.
+      if (options.rules === true) {
+        if (input.kind !== 'function-pairs') {
+          console.error(
+            '--rules scores a function-level corpus (§11.1); this file is a repo-snapshot ' +
+              'fixture list (§11.2), whose sites are scored against recorded runs rather ' +
+              'than function text.',
+          )
+          process.exitCode = 1
+          return
+        }
+        await runRuleTierCommand({ options, pairSet: input.pairSet })
+        return
+      }
+
       const databasePath = options.db ?? defaultDbPath()
       const resolved = path.resolve(databasePath)
 
@@ -66,15 +105,6 @@ export const registerEvalCommand = (program: Command): void => {
           `no state database at ${resolved}. \`eval\` scores runs that are already ` +
             'recorded; point --db at the database a scan wrote.',
         )
-        process.exitCode = 1
-        return
-      }
-
-      let input
-      try {
-        input = loadEvalInput(corpusPath)
-      } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error))
         process.exitCode = 1
         return
       }
@@ -91,6 +121,83 @@ export const registerEvalCommand = (program: Command): void => {
         database.close()
       }
     })
+}
+
+/**
+ * Score the committed rule set over a corpus (§11.1's third instrument).
+ *
+ * Free and providerless, so it says so rather than failing when no credentials
+ * are present — the tier's whole point is that the detection net can be measured
+ * without spending anything. Flags belonging to the other tiers are refused
+ * rather than ignored: `--run` selects a recorded run and this tier records
+ * nothing, so accepting it would let a script believe it had scored a run.
+ */
+const runRuleTierCommand = async (input: {
+  options: EvalCommandOptions
+  pairSet: PairSet
+}): Promise<void> => {
+  const { options, pairSet } = input
+
+  if (options.run !== undefined) {
+    console.error(
+      '--run selects a recorded run, which the rule tier does not use: it scores the ' +
+        'corpus directly and records nothing.',
+    )
+    process.exitCode = 1
+    return
+  }
+
+  if (options.minRecall !== undefined) {
+    console.error(
+      '--min-recall is a repo-level bar (D11) and does not apply to a function-level ' +
+        'corpus. §11.1 forbids reading this tier as repo-scale evidence, so there is no ' +
+        'threshold here to fail.',
+    )
+    process.exitCode = 1
+    return
+  }
+
+  const loaded = effectiveConfig()
+  if (loaded.violations.length > 0) {
+    console.error('Configuration is invalid; refusing to run:')
+    for (const violation of loaded.violations) {
+      console.error(`  [${violation.role}] ${violation.message}`)
+    }
+    process.exitCode = 1
+    return
+  }
+
+  let rulePaths: string[]
+  try {
+    rulePaths = resolveRulePaths(loaded.config.engines.rulePaths)
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error))
+    process.exitCode = 1
+    return
+  }
+
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), 'windbreak-rules-'))
+  try {
+    const quiet = options.json ? () => {} : (line: string) => console.log(line)
+
+    const report = await runRuleTier({
+      pairSet,
+      runBatch: createSemgrepBatchRunner({ rulePaths, scratchDir, log: quiet }),
+      log: quiet,
+    })
+
+    if (options.json) {
+      console.log(JSON.stringify(report, null, 2))
+    } else {
+      console.log('')
+      console.log(renderRuleTierReport(report))
+    }
+
+    // No gate, but a measurement that did not happen is not a success.
+    if (report.metrics.status === 'not-run') process.exitCode = 1
+  } finally {
+    fs.rmSync(scratchDir, { recursive: true, force: true })
+  }
 }
 
 const runFixtureTier = async (input: {
@@ -174,10 +281,13 @@ const runPairTier = async (input: {
   }
 
   let invoker
+  let closeSessions: (() => Promise<void>) | undefined
   try {
-    const { client } = await createWindbreakClient()
+    const windbreak = await createWindbreakClient()
+    closeSessions = windbreak.close
     invoker = createSdkModelInvoker({
-      client,
+      client: windbreak.client,
+      sessions: windbreak.sessions,
       models: loaded.config.models,
       log: options.json ? () => {} : (line) => console.log(line),
     })
@@ -198,23 +308,29 @@ const runPairTier = async (input: {
     )
   }
 
-  const report = await runTier1({
-    db: database,
-    pairSet,
-    invoker,
-    cacheDisabled: options.cache === false,
-    log: options.json ? () => {} : (line) => console.log(line),
-  })
+  try {
+    const report = await runTier1({
+      db: database,
+      pairSet,
+      invoker,
+      cacheDisabled: options.cache === false,
+      log: options.json ? () => {} : (line) => console.log(line),
+    })
 
-  if (options.json) {
-    console.log(JSON.stringify(report, null, 2))
-  } else {
-    console.log('')
-    console.log(renderTier1Report(report))
-  }
+    if (options.json) {
+      console.log(JSON.stringify(report, null, 2))
+    } else {
+      console.log('')
+      console.log(renderTier1Report(report))
+    }
 
-  // No gate, but a measurement that produced nothing is not a success.
-  if (report.stages.every((stage) => stage.status === 'not-run')) {
-    process.exitCode = 1
+    // No gate, but a measurement that produced nothing is not a success.
+    if (report.stages.every((stage) => stage.status === 'not-run')) {
+      process.exitCode = 1
+    }
+  } finally {
+    // A session is a slot the account owns, so it is released with the measurement
+    // rather than left to expire (§20.41).
+    await closeSessions?.()
   }
 }

@@ -11,6 +11,15 @@
  * model client, a target root, or a sandbox in it stays on this side of the line.
  */
 export { openReviewSession, reviewSessionFor } from './session'
+/**
+ * §5.3's vocabulary, reachable through this entry point rather than only from `session.ts`.
+ *
+ * A screen has to *name* a decision to offer one — `r` and `b` are a value, not a string the
+ * renderer invents — and `ReviewSession.decide` already takes this type, so a caller that could
+ * name the decision only by importing the module it is declared in was reaching past the boundary
+ * this file exists to draw.
+ */
+export type { ReviewDecision } from './session'
 export { createReviewInvestigator, unscannedScratchDir } from './investigator'
 /**
  * §20.31's two answers: which repository a directory is, and what is in it when
@@ -78,6 +87,15 @@ export type { InvestigatorMode } from '../investigate/persist'
  * module that decides what a refusal is.
  */
 export type { ProviderFailure, ProviderFailureKind } from '../provider-failure'
+/**
+ * The refusal's own sentence, exported as a *value* because a pane has to draw it.
+ *
+ * This is the half of §18 that was deliberately withdrawn when the adjudication screen retired:
+ * the two short-name helpers went with the pane that put a refusal in its own words, and §20.38
+ * is that pane's successor, so the copy saying what the operator does about it belongs back where
+ * the classification is rather than restated in the CLI, where it would drift.
+ */
+export { describeProviderFailure } from '../provider-failure'
 export type { ProposedSite, ProposalRejection } from '../investigate/propose'
 export type { InjectionSignal } from '../trust/injection'
 export type { ConversationBudgetState } from '../investigate/conversation'

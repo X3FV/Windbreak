@@ -29,6 +29,8 @@ import {
 } from './defaults'
 import { describeMissingTarget, resolveCommandTarget } from './target'
 
+import type { FreebuffSessions } from '../freebuff-session'
+
 import type { Command } from 'commander'
 import type { KnownVulnRecord } from '../pipeline'
 
@@ -91,6 +93,9 @@ export const registerPipelineCommand = (program: Command): void => {
 
       const databasePath = options.db ?? defaultDbPath()
       const database = openStateDatabase(databasePath)
+      // Declared outside the `try` because the release runs in its `finally`, and a
+      // `let` in a try block is not in scope there.
+      let closeSessions: (() => Promise<void>) | undefined
 
       try {
         const target = resolveCommandTarget({
@@ -121,10 +126,14 @@ export const registerPipelineCommand = (program: Command): void => {
         const candidates = readCandidatesForTriage(database, run.id)
 
         // Fail closed before any model call: no credentials is a hard error, not
-        // an empty run.
+        // an empty run. The client carries its Freebuff sessions (§20.41).
         let client
+        let sessions: FreebuffSessions
         try {
-          ;({ client } = await createWindbreakClient())
+          const windbreak = await createWindbreakClient()
+          client = windbreak.client
+          sessions = windbreak.sessions
+          closeSessions = windbreak.close
         } catch (error) {
           if (error instanceof MissingCredentialsError || error instanceof SdkEnvironmentError) {
             console.error(error.message)
@@ -136,6 +145,7 @@ export const registerPipelineCommand = (program: Command): void => {
 
         const invoker = createSdkModelInvoker({
           client,
+          sessions,
           models: config.models,
           log: options.json ? () => {} : (line) => console.log(line),
         })
@@ -294,6 +304,10 @@ export const registerPipelineCommand = (program: Command): void => {
           console.log(`\nWARN: candidate pipeline ${status}.`)
         }
       } finally {
+        // The sessions live exactly as long as the model stages do: a Freebuff
+        // session is a slot the account owns, and holding it past the run would
+        // lock out the operator's own chat until it expired (§20.41).
+        await closeSessions?.()
         database.close()
       }
     })

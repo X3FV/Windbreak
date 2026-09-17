@@ -10,6 +10,7 @@ import { registerAuthCommand } from './commands/auth'
 import { registerBuildCommand } from './commands/build'
 import { registerConfirmCommand } from './commands/confirm'
 import { registerConfigCommand } from './commands/config'
+import { registerCorpusCommand } from './commands/corpus'
 import { initCommandDefaults } from './commands/defaults'
 import { registerDbCommand } from './commands/db'
 import { registerEnginesCommand } from './commands/engines'
@@ -44,6 +45,7 @@ export const createProgram = (): Command => {
   registerBuildCommand(program)
   registerConfirmCommand(program)
   registerConfigCommand(program)
+  registerCorpusCommand(program)
   registerDbCommand(program)
   registerEnginesCommand(program)
   registerEvalCommand(program)

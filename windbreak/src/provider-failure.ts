@@ -167,8 +167,10 @@ export const describeProviderFailure = (failure: ProviderFailure): string => {
     return (
       `the model provider refused this call for billing: ${failure.detail} Every ` +
       'model call from here is refused the same way. ' +
-      `${providerFailureFix(failure)} Windbreak runs its own agents rather than ` +
-      "Freebuff's free-tier ones, so a scan or a question is always metered."
+      `${providerFailureFix(failure)} This is the metered path refusing an empty balance. ` +
+      'The free path is not an alternative for a batch run: Freebuff free mode answers any ' +
+      'client that is not the freebuff CLI itself with `403 free_mode_cli_required` ' +
+      '(§20.41.5).'
     )
   }
 

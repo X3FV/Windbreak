@@ -8,7 +8,7 @@ import { Database } from 'bun:sqlite'
  * Stored in `PRAGMA user_version` so a mismatched database fails loudly rather
  * than being silently misread.
  */
-export const SCHEMA_VERSION = 8
+export const SCHEMA_VERSION = 9
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS runs (
@@ -86,7 +86,26 @@ CREATE TABLE IF NOT EXISTS candidates (
   -- §4.6 triage label: likely-real | likely-noise | needs-context. NULL means
   -- triage never ran. Stored on the candidate (not only on the verdict) so
   -- verification can select its input set with one indexed query.
-  triage TEXT
+  triage TEXT,
+  -- §4.4.4: whether an entry point reaches this location, with the path and the
+  -- caveats. NULL means the reachability pass never ran, which is NOT the same as
+  -- unreachable (§18) — only a recorded 'unreachable' may exclude a candidate.
+  reachability_json TEXT
+);
+
+-- §4.4.4: the entry-point inventory every reachability conclusion is measured from.
+-- One row per callable the index can be entered at, with the reason it counts: the list
+-- is a claim, and a claim stored without its reason is one a reader cannot check.
+CREATE TABLE IF NOT EXISTS entry_points (
+  target_id TEXT NOT NULL REFERENCES targets(id) ON DELETE CASCADE,
+  file_path TEXT NOT NULL,
+  name TEXT NOT NULL,
+  -- 'fuzz-entry' | 'main' | 'input-source' | 'unrooted'
+  kind TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  sources_json TEXT NOT NULL,
+  created_at TEXT,
+  PRIMARY KEY (target_id, file_path, name)
 );
 
 CREATE TABLE IF NOT EXISTS verdicts (

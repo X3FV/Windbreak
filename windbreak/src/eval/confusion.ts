@@ -45,7 +45,17 @@ export interface Observation {
   detail: string | null
 }
 
-export type Tier1Stage = 'triage' | 'verification' | 'combined'
+/**
+ * A stage the 2×2 can describe.
+ *
+ * `rules` is §11.1's third instrument and the only one that is not a model
+ * stage: it is the committed detector rule set, scored over the same pairs. It
+ * belongs in this union because the *measurement* is identical — each half is
+ * classified, ground truth is two-sided — and re-deriving the matrix for it
+ * would be a second place for `discrimination` to be computed slightly
+ * differently.
+ */
+export type Tier1Stage = 'triage' | 'verification' | 'combined' | 'rules'
 
 /**
  * One stage's result over a corpus.

@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import { deriveFindings, findingId, humanClassFor } from './findings'
 
 import type { CandidateRecord } from '../pipeline'
+import type { CandidateReachability } from '../reach'
 import type { ReportableInput } from './findings'
 import type { VerdictSummary } from './types'
 
@@ -60,6 +61,10 @@ const entry = (overrides: Partial<ReportableInput> = {}): ReportableInput => ({
   enclosingFunction: 'parse_header',
   snippet: '  strcpy(copy, body);',
   language: 'c',
+  // Null by default, i.e. the reachability pass never ran. That is the case every
+  // pre-§4.4.4 database is in, and it must not exclude anything — the tests that want a
+  // conclusion supply one.
+  reachability: null,
   ...overrides,
 })
 
@@ -213,6 +218,109 @@ describe('finding assembly', () => {
   test('finding ids are stable for a candidate', () => {
     expect(findingId('cand-1')).toBe(findingId('cand-1'))
     expect(findingId('cand-1')).not.toBe(findingId('cand-2'))
+  })
+})
+
+describe('the reachability gate', () => {
+  const reachability = (
+    overrides: Partial<CandidateReachability> = {},
+  ): CandidateReachability => ({
+    klass: 'attacker-input',
+    distance: 1,
+    entry: {
+      filePath: 'src/main.c',
+      name: 'main',
+      kind: 'main',
+      reason: 'the program’s entry point',
+    },
+    incomplete: [],
+    path: [
+      { filePath: 'src/main.c', name: 'main', line: null },
+      { filePath: 'src/handler.c', name: 'parse_header', line: 12 },
+    ],
+    definition: { filePath: 'src/handler.c', name: 'parse_header', startLine: 10, endLine: 20 },
+    coverage: { entries: 1, externalCallees: 0, noEntries: false },
+    ...overrides,
+  })
+
+  test('a site no entry point reaches is excluded rather than reported', () => {
+    const { findings, excluded } = deriveFindings({
+      candidates: [
+        entry({
+          reachability: reachability({
+            klass: 'unreachable',
+            distance: null,
+            entry: null,
+            path: [],
+          }),
+        }),
+      ],
+    })
+
+    expect(findings).toEqual([])
+    expect(excluded).toHaveLength(1)
+    expect(excluded[0]!.reason).toMatch(/no entry point reaches it/)
+    expect(excluded[0]!.reason).toMatch(/§4.4.4/)
+  })
+
+  test('a candidate whose reachability was never computed is still reported', () => {
+    // A scan from before the pass existed leaves NULL, and a run that did not look is not
+    // a run that found no path. This is the case that keeps the gate from silently
+    // emptying every older database.
+    const { findings, excluded } = deriveFindings({ candidates: [entry()] })
+
+    expect(findings).toHaveLength(1)
+    expect(excluded).toEqual([])
+  })
+
+  test('unknown reports: absence of evidence is not exclusion', () => {
+    const { findings } = deriveFindings({
+      candidates: [
+        entry({
+          reachability: reachability({
+            klass: 'unknown',
+            distance: null,
+            entry: null,
+            path: [],
+            incomplete: ['1 call site(s) naming it sit outside every indexed callable'],
+          }),
+        }),
+      ],
+    })
+
+    expect(findings).toHaveLength(1)
+    expect(findings[0]!.evidence).toContain(
+      '1 call site(s) naming it sit outside every indexed callable',
+    )
+  })
+
+  test('exposed-api reports, because for a library the caller is the attacker', () => {
+    const { findings } = deriveFindings({
+      candidates: [
+        entry({
+          reachability: reachability({
+            klass: 'exposed-api',
+            distance: 0,
+            entry: null,
+            path: [],
+          }),
+        }),
+      ],
+    })
+
+    expect(findings).toHaveLength(1)
+    expect(findings[0]!.evidence).toMatch(/reachable from outside the indexed program/)
+  })
+
+  test('the evidence states the path an attacker takes to a reached site', () => {
+    const { findings } = deriveFindings({
+      candidates: [entry({ reachability: reachability() })],
+    })
+
+    expect(findings[0]!.evidence).toContain(
+      'Reachability: an attacker can reach this — a call path exists from main (src/main.c)',
+    )
+    expect(findings[0]!.evidence).toContain('main (src/main.c) -> parse_header (src/handler.c:12)')
   })
 })
 

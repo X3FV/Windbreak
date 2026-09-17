@@ -502,7 +502,16 @@ describe('runScan', () => {
     const db = scanDatabase()
     seedScanTarget({ db })
 
-    const calls = { recon: 0, osv: 0, engines: 0, patchMine: 0, toctou: 0, replay: 0, report: 0 }
+    const calls = {
+      recon: 0,
+      osv: 0,
+      engines: 0,
+      patchMine: 0,
+      toctou: 0,
+      reach: 0,
+      replay: 0,
+      report: 0,
+    }
     const deps = createScanDeps({}, calls)
 
     const first = await runScan(

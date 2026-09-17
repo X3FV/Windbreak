@@ -8,30 +8,10 @@
  * the paired discrimination rate are printed on the same line and read together.
  */
 
+import { count, NIL, rate, table } from './table'
+
 import type { StageMetrics } from './confusion'
 import type { Tier1Report } from './tier1'
-
-const NIL = '—'
-
-const rate = (value: number | null): string => (value === null ? NIL : value.toFixed(3))
-const count = (value: number | null): string => (value === null ? NIL : String(value))
-
-const table = (headers: readonly string[], rows: readonly (readonly string[])[]): string => {
-  const widths = headers.map((header, index) =>
-    Math.max(header.length, ...rows.map((row) => (row[index] ?? '').length)),
-  )
-  const line = (values: readonly string[]): string =>
-    values
-      .map((value, index) =>
-        index === 0 ? value.padEnd(widths[index]!) : value.padStart(widths[index]!),
-      )
-      .join('  ')
-      .trimEnd()
-
-  return [line(headers), line(widths.map((width) => '─'.repeat(width))), ...rows.map(line)].join(
-    '\n',
-  )
-}
 
 const HEADERS = [
   'stage',

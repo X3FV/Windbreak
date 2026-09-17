@@ -14,8 +14,11 @@
  * later is a change to this file only.
  */
 
+import { freeAgentIdFor, FreeModeModelError } from '../freebuff-agents'
+import { freebuffMetadata, FreebuffSessionError } from '../freebuff-session'
 import { modelVendor } from '../models'
 
+import type { FreebuffSessions } from '../freebuff-session'
 import type { AgentDefinition, CodebuffClient } from '@codebuff/sdk'
 import type { ModelConfig, ModelRole } from '../models'
 import type {
@@ -29,6 +32,18 @@ import type {
 export interface CreateSdkModelInvokerOptions {
   client: CodebuffClient
   models: ModelConfig
+  /**
+   * The Freebuff session every call is billed to (spec §20.41).
+   *
+   * **Required, and that is the point.** A call made without a session is a
+   * *metered* call: `run.ts` defaults an absent `costMode` to `'normal'`, and the
+   * server has no `freebuff_instance_id` to admit it against. That was the defect
+   * — every model call windbreak made was billed to an account with no credits,
+   * so the whole model half answered HTTP 402 on a command whose own model table
+   * calls these models unmetered. An optional parameter is what let four call
+   * sites forget it silently, so the type now refuses a construction without one.
+   */
+  sessions: FreebuffSessions
   /**
    * Hard ceiling on agent steps. Two by default, and that number is the
    * runtime's retry budget rather than a judgement about the task — see
@@ -104,7 +119,10 @@ export const buildRoleAgentDefinition = (
   systemPrompt: string,
   output: StructuredOutputSpec<unknown>,
 ): AgentDefinition => ({
-  id: `windbreak-${role}`,
+  // The Freebuff root agent for this model, not `windbreak-${role}`: free mode admits
+  // only specific agent/model combinations, and an unrecognised id is refused at the
+  // provider with a message about combinations rather than about configuration (§20.41).
+  id: freeAgentIdFor(models[role].model),
   displayName: `WindBreak ${role}`,
   model: models[role].model,
   toolNames: [...ROLE_TOOLS],
@@ -127,7 +145,7 @@ export const buildRoleAgentDefinition = (
 export const createSdkModelInvoker = (
   options: CreateSdkModelInvokerOptions,
 ): ModelInvoker => {
-  const { client, models } = options
+  const { client, models, sessions } = options
   const log = options.log ?? (() => {})
   const maxAgentSteps = options.maxAgentSteps ?? DEFAULT_MAX_AGENT_STEPS
 
@@ -151,12 +169,44 @@ export const createSdkModelInvoker = (
       output: StructuredOutputSpec<T>,
     ): Promise<InvokeOutcome<T>> {
       const base = identity(request.role)
-      const definition = buildRoleAgentDefinition(
-        request.role,
-        models,
-        request.systemPrompt,
-        output as StructuredOutputSpec<unknown>,
-      )
+
+      // A model free mode will not serve is a configuration error, and it is reported
+      // here rather than as a provider refusal that names neither the model's role nor
+      // the config that chose it.
+      let definition: AgentDefinition
+      try {
+        definition = buildRoleAgentDefinition(
+          request.role,
+          models,
+          request.systemPrompt,
+          output as StructuredOutputSpec<unknown>,
+        )
+      } catch (error) {
+        if (error instanceof FreeModeModelError) {
+          return { ...base, ok: false, error: error.message }
+        }
+        throw error
+      }
+
+      // The session is opened before the call and its instance id rides on it: a
+      // request without one is the metered request this stage must not make. A
+      // session refusal is returned as this call's error rather than thrown, so
+      // every stage above keeps one failure shape.
+      let lease
+      try {
+        lease = await sessions.forModel(base.modelId)
+      } catch (error) {
+        return {
+          ...base,
+          ok: false,
+          error:
+            error instanceof FreebuffSessionError
+              ? `no Freebuff session for ${base.modelId}: ${error.message}`
+              : `${request.role} could not open a Freebuff session: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+        }
+      }
 
       let result
       try {
@@ -164,6 +214,10 @@ export const createSdkModelInvoker = (
           agent: definition,
           prompt: request.userPrompt,
           maxAgentSteps,
+          costMode: sessions.costMode,
+          ...(freebuffMetadata(lease)
+            ? { extraCodebuffMetadata: freebuffMetadata(lease) }
+            : {}),
           // The stage budget is the governor's unit, so a single call needs its
           // own ceiling or a hung provider eats the stage silently.
           signal: AbortSignal.timeout(request.timeoutMs),

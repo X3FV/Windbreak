@@ -4,7 +4,7 @@ import { buildBindings } from './alias'
 import { extractEvents } from './events'
 import { callerLockVerdict, covered, lockIntervals } from './lockcontext'
 
-import type { CallEdge } from './callgraph'
+import type { CallEdge } from '../interproc/callgraph'
 import type { LockInterval } from './lockcontext'
 
 const source = (...lines: string[]): string[] => lines

@@ -24,10 +24,12 @@
 import { createHash } from 'crypto'
 
 import { isModelProposed } from '../engines/types'
+import { describeReachability } from '../reach'
 
 import { suggestedFixFor } from './fixes'
 
 import type { CandidateRecord } from '../pipeline'
+import type { CandidateReachability } from '../reach'
 import type { EvidenceTier, Finding, ModelUsage, RediscoveryInfo, VerdictSummary } from './types'
 
 export interface ReportableInput {
@@ -47,6 +49,13 @@ export interface ReportableInput {
   enclosingFunction: string | null
   snippet: string | null
   language: string | null
+  /**
+   * §4.4.4's conclusion for this candidate's location, or null when the pass never ran.
+   *
+   * Null is not a class: a candidate from a scan that predates the pass, or one with no
+   * file and line, has no conclusion — and only a recorded `unreachable` may exclude.
+   */
+  reachability: CandidateReachability | null
 }
 
 export interface DeriveFindingsInput {
@@ -187,6 +196,7 @@ const buildEvidence = (input: {
   callPath: string | null
   snippet: string | null
   language: string | null
+  reachability: CandidateReachability | null
   verdicts: readonly VerdictSummary[]
 }): string => {
   const { candidate } = input
@@ -212,6 +222,11 @@ const buildEvidence = (input: {
   if (input.language) lines.push(`Language: ${input.language}`)
 
   if (input.callPath) lines.push(`Call path: ${input.callPath}`)
+
+  // §4.4.4. After the call path because it is the same kind of statement — where the
+  // code sits in the program — and it is the one a triager reads first: a call path says
+  // who calls a function, this says whether anything an attacker controls can get there.
+  if (input.reachability) lines.push(describeReachability(input.reachability))
 
   const proposer = firstReasoning(input.verdicts, 'proposer')
   const refuter = firstReasoning(input.verdicts, 'refuter')
@@ -245,6 +260,22 @@ export const deriveFindings = (input: DeriveFindingsInput): DeriveFindingsResult
   for (const entry of input.candidates) {
     if (entry.candidate.state === 'rediscovery') {
       rediscoveries.push(entry)
+      continue
+    }
+
+    // §4.4.4. The gate is on a *recorded* conclusion and on nothing else: a candidate
+    // whose reachability was never computed passes, because a run that did not look is
+    // not a run that found no path (§18, and the same rule §20.35 states for dynamic
+    // confirmation). A site no entry point reaches, with every caller set on the way in
+    // accounted for, is a defect in code this program cannot be attacked through — which
+    // is the most common reason a technically-real report is closed as N/A.
+    if (entry.reachability?.klass === 'unreachable') {
+      excluded.push({
+        candidateId: entry.candidate.id,
+        reason:
+          'no entry point reaches it and every caller set on the way in is complete ' +
+          '(spec §4.4.4): the code is real, but not reachable in this build',
+      })
       continue
     }
 
@@ -297,6 +328,7 @@ export const deriveFindings = (input: DeriveFindingsInput): DeriveFindingsResult
         callPath: entry.callPath,
         snippet: entry.snippet,
         language: entry.language,
+        reachability: entry.reachability,
         verdicts: entry.verdicts,
       }),
       suggestedFix: suggestedFixFor({

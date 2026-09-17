@@ -8,6 +8,7 @@ export { defaultResolveInvoker, runScan } from './run'
  */
 export { launchScan } from './launch'
 export type { LaunchScanOptions, LaunchScanOutcome } from './launch'
+export { scanSummaryLines } from './summary'
 export {
   formatInterproceduralCoverage,
   formatLanguageCoverage,

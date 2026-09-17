@@ -25,10 +25,11 @@ import {
   createInteractiveDecider,
   createNonInteractiveDecider,
 } from '../budget'
-import { MissingCredentialsError, SdkEnvironmentError, createWindbreakClient } from '../client'
+import { MissingCredentialsError, SdkEnvironmentError, resolveModelHost } from '../client'
 import { findProviderFailure } from '../provider-failure'
 import { createRun, finishRun, persistCandidates, requireEngines, runBaselineEngines } from '../engines'
 import { runPatchMining } from '../patchmine'
+import { runReachability } from '../reach'
 import { runToctou } from '../toctou'
 import { resolveRulePaths } from '../engines/rules'
 import { capturePattern, refreshPatternPrecision, runVariantHunt } from '../library'
@@ -61,6 +62,7 @@ import {
 } from './stages'
 
 import type { Database } from 'bun:sqlite'
+import type { WindbreakModelHost } from '../client'
 import type { ManifestRef } from '../recon'
 import type { ModelInvoker, PipelineProgramContext } from '../pipeline'
 import type { InvokerOutcome, ScanOptions, ScanResult, ScanStageId, ScanStatus, StageRecord, StageStatus } from './types'
@@ -83,6 +85,7 @@ export interface ScanDeps {
   runBaselineEngines: typeof runBaselineEngines
   runPatchMining: typeof runPatchMining
   runToctou: typeof runToctou
+  runReachability: typeof runReachability
   runVariantHunt: typeof runVariantHunt
   runReport: typeof runReport
 }
@@ -94,6 +97,7 @@ export const DEFAULT_SCAN_DEPS: ScanDeps = {
   runBaselineEngines,
   runPatchMining,
   runToctou,
+  runReachability,
   runVariantHunt,
   runReport,
 }
@@ -160,13 +164,27 @@ const shortReason = (error: unknown): string => {
 }
 
 export const defaultResolveInvoker =
-  (models: ScanOptions['config']['models'], log: (line: string) => void) =>
+  (
+    models: ScanOptions['config']['models'],
+    log: (line: string) => void,
+    /** A host the caller already owns (§20.41). Absent, one is built from the environment. */
+    injectedHost?: WindbreakModelHost,
+  ) =>
   async (): Promise<InvokerOutcome> => {
     try {
-      const { client } = await createWindbreakClient()
+      const resolved = await resolveModelHost(injectedHost)
       return {
         ok: true,
-        invoker: createSdkModelInvoker({ client, models, log }),
+        invoker: createSdkModelInvoker({
+          client: resolved.host.client,
+          sessions: resolved.host.sessions,
+          models,
+          log,
+        }),
+        // Only a host this scan built is released at the end of the run. An injected one
+        // belongs to the caller, and a scan ending a session it did not open would end a
+        // chat it is not party to (§20.41.3) — so a borrowed host contributes no `close`.
+        ...(resolved.close ? { close: resolved.close } : {}),
       }
     } catch (error) {
       return { ok: false, reason: shortReason(error) }
@@ -321,15 +339,26 @@ export const runScan = async (options: ScanOptions): Promise<ScanResult> => {
   let report: ScanResult['report'] = null
   let invokerOutcome: InvokerOutcome | null = null
   let activeInvoker: ModelInvoker | null = null
+  /**
+   * The invoker's session release, held in an object rather than a `let`.
+   *
+   * It is assigned inside `getInvoker`'s closure, and the compiler's control-flow
+   * analysis does not follow an assignment made there — a bare `let` stays narrowed to
+   * its initialiser at the point below, where the release is issued.
+   */
+  const sessions: { close?: (() => Promise<void>) | undefined } = {}
   let terminal: ScanStatus | null = null
 
   const resolveInvoker =
     options.resolveInvoker ??
-    defaultResolveInvoker(options.config.models, staticOnly ? () => {} : log)
+    defaultResolveInvoker(options.config.models, staticOnly ? () => {} : log, options.modelHost)
 
   const getInvoker = async (): Promise<InvokerOutcome> => {
     invokerOutcome ??= await resolveInvoker()
-    if (invokerOutcome.ok) activeInvoker = invokerOutcome.invoker
+    if (invokerOutcome.ok) {
+      activeInvoker = invokerOutcome.invoker
+      sessions.close = invokerOutcome.close
+    }
     return invokerOutcome
   }
 
@@ -446,6 +475,12 @@ export const runScan = async (options: ScanOptions): Promise<ScanResult> => {
       break
     }
   }
+
+  // The sessions live exactly as long as the model stages do. A Freebuff session is
+  // a slot the account owns (§20.41), so holding it past the run would lock out the
+  // operator's own `freebuff` chat until it expired — and this is the last point in
+  // the command where an async DELETE can still be issued.
+  await sessions.close?.()
 
   // --- status, resume point, final metrics ---
   const reRun = new Set(stages.map((stage) => stage.stage))
@@ -724,6 +759,18 @@ export const runScan = async (options: ScanOptions): Promise<ScanResult> => {
         })
 
         const patternsRan = replay.outcomes.filter((outcome) => outcome.revalidated).length
+
+        // §4.4.4: reachability. Last in the static core because it annotates the
+        // candidates every producer above has just persisted — and it belongs here rather
+        // than in triage because §4.4.4 is a static question whose answer changes *which*
+        // candidates are worth a model call. Nothing about it changes a candidate's state:
+        // a recorded `unreachable` is a reporting gate, not a deletion.
+        const reach = deps.runReachability({
+          db: options.db,
+          targetId: options.targetId,
+          runId,
+        })
+
         const engineFailed = engines.executions.some((execution) => execution.failed)
 
         const patchMineDegraded = patchMined.stoppedBy === 'budget-degrade'
@@ -753,7 +800,10 @@ export const runScan = async (options: ScanOptions): Promise<ScanResult> => {
             `${toctouInterproc} interprocedural site(s) + ` +
             `${toctouSignal} signal site(s) over ${toctou.coverage.signalHandlers} handler(s), ` +
             `${replayPersisted.inserted} variant(s) from ` +
-            `${patternsRan}/${replay.checkersConsidered} pattern(s)`,
+            `${patternsRan}/${replay.checkersConsidered} pattern(s), ` +
+            `${reach.counts.attackerInput}/${reach.counts.definitions} callable(s) reachable ` +
+            `from attacker input (${reach.counts.exposedApi} exposed-api, ` +
+            `${reach.counts.unreachable} unreachable, ${reach.counts.unknown} unknown)`,
           counts: {
             candidates: engines.candidates.length,
             patchMined: patchMined.candidates.length,
@@ -774,6 +824,18 @@ export const runScan = async (options: ScanOptions): Promise<ScanResult> => {
             variants: replayPersisted.inserted,
             patternsConsidered: replay.checkersConsidered,
             patternsRan,
+            // §4.4.4's denominator and its four classes, carried beside the candidate
+            // counts for the same reason the call graph's are: `0 unreachable` must not
+            // print the same way as a closure that never completed.
+            entryPoints: reach.counts.entries,
+            reachCallables: reach.counts.definitions,
+            reachAttackerInput: reach.counts.attackerInput,
+            reachExposedApi: reach.counts.exposedApi,
+            reachUnreachable: reach.counts.unreachable,
+            reachUnknown: reach.counts.unknown,
+            reachTaintRoots: reach.coverage.taintRoots,
+            reachExternalCallees: reach.coverage.externalCallees,
+            reachQualifiedCallees: reach.coverage.qualifiedCallees,
           },
           reason: engineFailed
             ? 'an engine failed, so its findings are partial and this is not a clean result'
@@ -788,6 +850,7 @@ export const runScan = async (options: ScanOptions): Promise<ScanResult> => {
             ...patchMined.warnings,
             ...toctou.warnings,
             ...replay.warnings,
+            ...reach.warnings,
           ],
         }
       }

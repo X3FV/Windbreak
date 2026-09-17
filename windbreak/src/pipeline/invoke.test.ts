@@ -1,12 +1,28 @@
 import { describe, expect, test } from 'bun:test'
 
+import { freeAgentIdFor } from '../freebuff-agents'
+import { FreebuffSessionError } from '../freebuff-session'
 import { DEFAULT_MODEL_CONFIG } from '../models'
 import { buildRoleAgentDefinition, createSdkModelInvoker } from './invoke'
 import { PROMPT_TEMPLATE_VERSION } from './context'
 import { TRIAGE_OUTPUT_SPEC } from './prompt'
 
 import type { CodebuffClient } from '@codebuff/sdk'
+import type { FreebuffSessions } from '../freebuff-session'
 import type { ModelInvocation, StructuredOutputSpec } from './types'
+
+/**
+ * A session per model, with no network.
+ *
+ * The invoker refuses to be constructed without one, so every test that builds one
+ * needs this — which is the point: the missing session was what made every call a
+ * metered call, and it went unnoticed because the parameter was optional.
+ */
+const fakeSessions = (): FreebuffSessions => ({
+  costMode: 'free',
+  forModel: async (model) => ({ instanceId: `sess-${model}`, model, reused: false }),
+  release: async () => {},
+})
 
 const invocation: ModelInvocation = {
   role: 'triage',
@@ -26,6 +42,8 @@ interface Captured {
   }
   prompt: string
   maxAgentSteps?: number
+  costMode?: string
+  extraCodebuffMetadata?: Record<string, string>
 }
 
 const fakeClient = (
@@ -53,7 +71,12 @@ describe('buildRoleAgentDefinition', () => {
       TRIAGE_OUTPUT_SPEC as unknown as StructuredOutputSpec<unknown>,
     )
 
-    expect(definition.id).toBe('windbreak-refuter')
+    // The Freebuff root agent for the refuter's model, not `windbreak-refuter`: free
+    // mode admits only specific agent/model combinations, so an id of our own is refused
+    // at the provider (§20.41). The role is still ours — the prompt, the fence and the
+    // schema below are all windbreak's.
+    expect(definition.id).toBe(freeAgentIdFor(DEFAULT_MODEL_CONFIG.refuter.model))
+    expect(definition.displayName).toBe('WindBreak refuter')
     expect(definition.model).toBe(DEFAULT_MODEL_CONFIG.refuter.model)
     expect(definition.outputMode).toBe('structured_output')
     expect(definition.systemPrompt).toBe('refute it')
@@ -84,6 +107,7 @@ describe('createSdkModelInvoker', () => {
   test('reports the configured model, vendor, and that no seed is supported', () => {
     const invoker = createSdkModelInvoker({
       client: fakeClient({}),
+      sessions: fakeSessions(),
       models: DEFAULT_MODEL_CONFIG,
     })
 
@@ -104,7 +128,11 @@ describe('createSdkModelInvoker', () => {
       },
     )
 
-    const invoker = createSdkModelInvoker({ client, models: DEFAULT_MODEL_CONFIG })
+    const invoker = createSdkModelInvoker({
+      client,
+      sessions: fakeSessions(),
+      models: DEFAULT_MODEL_CONFIG,
+    })
     const outcome = await invoker.invoke(invocation, spec)
 
     expect(outcome.ok).toBe(true)
@@ -123,7 +151,11 @@ describe('createSdkModelInvoker', () => {
 
   test('treats an SDK error output as a failure, not an answer', async () => {
     const client = fakeClient({ type: 'error', message: 'rate limited' })
-    const invoker = createSdkModelInvoker({ client, models: DEFAULT_MODEL_CONFIG })
+    const invoker = createSdkModelInvoker({
+      client,
+      sessions: fakeSessions(),
+      models: DEFAULT_MODEL_CONFIG,
+    })
 
     const outcome = await invoker.invoke(invocation, spec)
 
@@ -133,7 +165,11 @@ describe('createSdkModelInvoker', () => {
 
   test('treats an unexpected output mode as a failure', async () => {
     const client = fakeClient({ type: 'lastMessage', value: [] })
-    const invoker = createSdkModelInvoker({ client, models: DEFAULT_MODEL_CONFIG })
+    const invoker = createSdkModelInvoker({
+      client,
+      sessions: fakeSessions(),
+      models: DEFAULT_MODEL_CONFIG,
+    })
 
     const outcome = await invoker.invoke(invocation, spec)
 
@@ -147,7 +183,11 @@ describe('createSdkModelInvoker', () => {
     // "returned structuredOutput instead of a structured result" one, which read
     // as a contradiction and named neither cause.
     const client = fakeClient({ type: 'structuredOutput', value: null })
-    const invoker = createSdkModelInvoker({ client, models: DEFAULT_MODEL_CONFIG })
+    const invoker = createSdkModelInvoker({
+      client,
+      sessions: fakeSessions(),
+      models: DEFAULT_MODEL_CONFIG,
+    })
 
     const outcome = await invoker.invoke(invocation, spec)
 
@@ -164,7 +204,11 @@ describe('createSdkModelInvoker', () => {
       type: 'structuredOutput',
       value: { label: 'probably-real', rationale: 'x' },
     })
-    const invoker = createSdkModelInvoker({ client, models: DEFAULT_MODEL_CONFIG })
+    const invoker = createSdkModelInvoker({
+      client,
+      sessions: fakeSessions(),
+      models: DEFAULT_MODEL_CONFIG,
+    })
 
     const outcome = await invoker.invoke(invocation, spec)
 
@@ -179,10 +223,70 @@ describe('createSdkModelInvoker', () => {
       },
     } as unknown as CodebuffClient
 
-    const invoker = createSdkModelInvoker({ client, models: DEFAULT_MODEL_CONFIG })
+    const invoker = createSdkModelInvoker({
+      client,
+      sessions: fakeSessions(),
+      models: DEFAULT_MODEL_CONFIG,
+    })
     const outcome = await invoker.invoke(invocation, spec)
 
     expect(outcome.ok).toBe(false)
     if (!outcome.ok) expect(outcome.error).toContain('socket hang up')
+  })
+
+  test('every call is billed to a Freebuff session, not to the account', async () => {
+    // §20.41's regression guard. Both fields are what make the call free: without
+    // `costMode` the SDK sends `'normal'`, and without the instance id the server has
+    // no session to admit it against. Every call windbreak made was missing both, so
+    // the model half answered HTTP 402 `Out of credits` on a command whose own model
+    // table calls these models unmetered.
+    let captured: Captured | undefined
+    const client = fakeClient(
+      { type: 'structuredOutput', value: { label: 'likely-real', rationale: 'yes' } },
+      (options) => {
+        captured = options
+      },
+    )
+
+    const invoker = createSdkModelInvoker({
+      client,
+      sessions: fakeSessions(),
+      models: DEFAULT_MODEL_CONFIG,
+    })
+    await invoker.invoke(invocation, spec)
+
+    expect(captured?.costMode).toBe('free')
+    expect(captured?.extraCodebuffMetadata?.freebuff_instance_id).toBe(
+      `sess-${DEFAULT_MODEL_CONFIG.triage.model}`,
+    )
+  })
+
+  test('a session that cannot be opened is a failed call, and no call is made', async () => {
+    // The refusal has to land before the provider is reached: a metered fallback would
+    // be the same defect wearing the error message.
+    let ran = false
+    const client = fakeClient({ type: 'structuredOutput', value: {} }, () => {
+      ran = true
+    })
+    const invoker = createSdkModelInvoker({
+      client,
+      sessions: {
+        costMode: 'free',
+        forModel: async () => {
+          throw new FreebuffSessionError('model_locked', 'held by a chat on glm')
+        },
+        release: async () => {},
+      },
+      models: DEFAULT_MODEL_CONFIG,
+    })
+
+    const outcome = await invoker.invoke(invocation, spec)
+
+    expect(ran).toBe(false)
+    expect(outcome.ok).toBe(false)
+    if (!outcome.ok) {
+      expect(outcome.error).toContain('no Freebuff session')
+      expect(outcome.error).toContain('held by a chat on glm')
+    }
   })
 })

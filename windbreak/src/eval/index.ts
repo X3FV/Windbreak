@@ -20,6 +20,22 @@
  * shape of the JSON it was handed.
  */
 export { composeObservations, isCleared, isFlagged, scoreStage } from './confusion'
+export {
+  buildCorpus,
+  CORPUS_NAME,
+  DEFAULT_MAX_FUNCTION_LINES,
+} from './corpus/build'
+export { cvesInMessage, isCSourcePath, parseChangedFiles } from './corpus/diff'
+export { codeSignature, onlyCommentsChanged, stripComments } from './corpus/source'
+export { createSemgrepBatchRunner, extensionFor, halfFileName } from './rule-runner'
+export {
+  halfKey,
+  halfSource,
+  RULE_HALVES,
+  RULE_TIER_STAGE,
+  runRuleTier,
+} from './rule-tier'
+export { renderRuleTierReport } from './rule-tier-text'
 export { buildFunnel, stageSurvivors } from './funnel'
 export { EvalInputReadError, loadEvalInput, readJsonFile } from './load'
 export {
@@ -69,6 +85,25 @@ export type { RunEvalOptions } from './run'
 export type { FixtureProject, ProjectResolution } from './projects'
 export type { SnapshotMarker, SnapshotOptions, SnapshotResult } from './snapshot'
 export type { RunTier1Options, Tier1Report } from './tier1'
+export type {
+  BuildCorpusOptions,
+  BuildCorpusResult,
+  CorpusDrop,
+  CorpusSource,
+  CorpusStats,
+  ParsedCallable,
+} from './corpus/build'
+export type { ChangedFile, ChangedRange } from './corpus/diff'
+export type {
+  RuleAttribution,
+  RuleBatchResult,
+  RuleBatchRunner,
+  RuleHalfInput,
+  RuleHalfOutcome,
+  RulePairOutcome,
+  RuleTierReport,
+  RunRuleTierOptions,
+} from './rule-tier'
 export type {
   EvalCandidate,
   EvalFixtureReport,

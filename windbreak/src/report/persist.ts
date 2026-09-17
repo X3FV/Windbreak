@@ -11,6 +11,7 @@
 import { createHash } from 'crypto'
 
 import { readCandidatesForTriage, readCandidate } from '../pipeline/persist'
+import { readCandidateReachability } from '../reach'
 
 import type { Database } from 'bun:sqlite'
 import type { CandidateRecord, PipelineProgramContext } from '../pipeline'
@@ -242,6 +243,9 @@ export const collectReportableInputs = (input: {
       enclosingFunction: enclosing?.name ?? null,
       snippet: snippetOf(candidate),
       language: input.programContext?.languageFor(candidate.filePath) ?? null,
+      // §4.4.4's conclusion, read from the row rather than recomputed: the report makes
+      // no model calls and should not need a call graph to state one line.
+      reachability: readCandidateReachability(input.db, candidate.id),
     }
   })
 }

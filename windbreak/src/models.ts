@@ -44,9 +44,13 @@ export const CONFIGURABLE_ROLES = [...MODEL_ROLES, INVESTIGATOR_ROLE] as const
 export type ConfigurableRole = (typeof CONFIGURABLE_ROLES)[number]
 
 /**
- * Models that are unmetered at full access, i.e. they cost no daily session.
- * WindBreak's high-volume stages must stay on this list or a single scan burns
- * the researcher's day. See the repo README's model table.
+ * Models that cost no daily Freebuff *session*.
+ *
+ * The list is still the one to prefer, and the reason has changed (§20.41). A scan does
+ * not consume a session because a scan does not get one: Windbreak is not the freebuff CLI,
+ * so its calls are metered and bill the account's credits whatever is on this list. What
+ * the list still buys is the cheapest per-token model that can do the work, and what it no
+ * longer claims is that the work is free.
  *
  * `deepseek/deepseek-v4-pro` is deliberately absent: it was retired from the
  * catalog. DeepSeek V4.1 Flash replaces it here.

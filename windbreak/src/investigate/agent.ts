@@ -40,6 +40,8 @@
  * somewhere in a loop.
  */
 
+import { freeAgentIdFor } from '../freebuff-agents'
+import { freebuffMetadata, FreebuffSessionError } from '../freebuff-session'
 import { TRUST_FRAMING } from '../pipeline/prompt'
 import { DEFAULT_MODEL_CONFIG } from '../models'
 import { classifyProviderFailure, statusCodeOf } from '../provider-failure'
@@ -48,6 +50,7 @@ import { DEFAULT_INVESTIGATOR_STEPS } from './limits'
 import { DEFAULT_INVESTIGATOR_AGENT, createInvestigatorTools, investigatorToolNames } from './tools'
 
 import type { AgentDefinition, CodebuffClient, RunOptions } from '@codebuff/sdk'
+import type { FreebuffSessions } from '../freebuff-session'
 import type { ModelRoleConfig } from '../models'
 import type { ProviderFailure } from '../provider-failure'
 import type { ProposedSite, ProposalRejection } from './propose'
@@ -239,6 +242,15 @@ export interface InvestigatorTurn {
 
 export interface InvestigatorOptions {
   client: CodebuffClient
+  /**
+   * The Freebuff session this turn is billed to (spec §20.41).
+   *
+   * Required for the same reason `createSdkModelInvoker`'s is: without one the run
+   * is billed as a metered call, and the account this was built for has no credits
+   * — a live turn met exactly that 402. A session is bound to one model, so an
+   * investigator on a different model than the pipeline's uses its own.
+   */
+  sessions: FreebuffSessions
   workspace: InvestigatorWorkspace
   /** Which agent runs. The engineer requires a workspace with a working copy. */
   agent?: InvestigatorAgentName
@@ -284,7 +296,11 @@ export const buildInvestigatorAgentDefinition = (
   model: ModelRoleConfig = DEFAULT_INVESTIGATOR_MODEL,
   agent: InvestigatorAgentName = DEFAULT_INVESTIGATOR_AGENT,
 ): AgentDefinition => ({
-  id: agent === 'engineer' ? 'windbreak-engineer' : 'windbreak-investigator',
+  // The Freebuff root agent for this model (§20.41): free mode admits only specific
+  // agent/model combinations, so an id of our own is refused at the provider. Which of
+  // the two *windbreak* agents this is stays in `displayName` and in the recorded turn —
+  // the gate matches the id, and both agents are the same root as far as it is concerned.
+  id: freeAgentIdFor(model.model),
   displayName: agent === 'engineer' ? 'WindBreak engineer' : 'WindBreak investigator',
   model: model.model,
   toolNames: investigatorToolNames(agent),
@@ -453,12 +469,34 @@ export const createInvestigator = (options: InvestigatorOptions): Investigator =
         },
       })
 
+      // Opened before the run, like the pipeline's: the session is what makes the
+      // call free, so a turn that could not get one never reaches the provider.
+      let lease
+      try {
+        lease = await options.sessions.forModel(model.model)
+      } catch (error) {
+        return outcome({
+          ok: false,
+          answer: null,
+          error:
+            error instanceof FreebuffSessionError
+              ? `no Freebuff session for ${model.model}: ${error.message}`
+              : `could not open a Freebuff session: ${
+                  error instanceof Error ? error.message : String(error)
+                }`,
+        })
+      }
+
       try {
         const result = await client.run({
           agent: definition,
           prompt,
           customToolDefinitions: tools,
           maxAgentSteps,
+          costMode: options.sessions.costMode,
+          ...(freebuffMetadata(lease)
+            ? { extraCodebuffMetadata: freebuffMetadata(lease) }
+            : {}),
           // Counted here, not inferred from tool calls: one request can ask for several
           // tools, so `toolCalls + 1` is an upper bound on requests and not the count.
           // §20.29.6's ceiling is on what a provider charges for, which is this.

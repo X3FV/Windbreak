@@ -36,6 +36,7 @@ import { openStateDatabase } from '../state/db'
 import { VERSION } from '../version'
 import { runScan } from './run'
 
+import type { WindbreakModelHost } from '../client'
 import type { ScanResult } from './types'
 
 export interface LaunchScanOptions {
@@ -55,6 +56,14 @@ export interface LaunchScanOptions {
    * refuses exactly that.
    */
   runId?: string | undefined
+  /**
+   * A model transport the caller already owns (§20.41).
+   *
+   * The seam that makes an in-TUI scan able to run on the host it was launched from,
+   * rather than on a second client the scan resolves for itself. Absent, the behaviour is
+   * unchanged; present, the scan neither builds nor releases it.
+   */
+  modelHost?: WindbreakModelHost | undefined
   /** One line per event, as the run itself reports them. */
   log?: ((line: string) => void) | undefined
 }
@@ -185,6 +194,11 @@ const launch = async (options: LaunchScanOptions): Promise<LaunchScanOutcome> =>
       // See (2) above: the renderer owns stdin, so a prompt would hang the screen.
       yes: true,
       version: VERSION,
+      // A host the screen already holds is used as-is and left open for its owner
+      // (§20.41): the free path is admitted only to the freebuff CLI, so a scan run inside
+      // that CLI has to run on the client and session it already has rather than on a
+      // second pair resolved from the environment.
+      ...(options.modelHost ? { modelHost: options.modelHost } : {}),
       ...(options.log ? { log: options.log } : {}),
     })
 

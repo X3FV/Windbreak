@@ -41,7 +41,7 @@
  */
 
 import { CALLABLE_KIND_FILTER } from '../recon/symbol-kinds'
-import { buildDefinitionIndex, definitionKey, resolveName } from './resolver'
+import { buildDefinitionIndex, definitionKey, resolveName } from '../toctou/resolver'
 
 import type { Database } from 'bun:sqlite'
 
@@ -88,6 +88,18 @@ export interface CallGraph {
   /** Outgoing edges from one definition — the calls it makes, in source order. */
   edgesFrom: (filePath: string, name: string) => readonly CallEdge[]
   /**
+   * Every call *reference* attributed to one definition, resolved or not, in written
+   * order.
+   *
+   * `edgesFrom` is what resolved; this is what was written. The difference is the whole
+   * of `unresolved` and `ambiguous`, and it is not only diagnostics: a call to a libc
+   * function has no definition in the target and so no edge, and `reach/entries.ts`
+   * asks exactly that question — does this function call `recv`, `getenv`, `fopen`? A
+   * name-based question cannot be answered from a list of resolved definitions, and the
+   * only other copy of the attribution is the one this file already does.
+   */
+  callsOf: (filePath: string, name: string) => readonly CallReference[]
+  /**
    * Call references to a name that could not be placed, so its caller set is
    * partial.
    *
@@ -111,6 +123,23 @@ export interface CallGraph {
   unattributed: number
   /** Callee names with no definition. A libc call is the ordinary case. */
   unresolved: string[]
+  /**
+   * The same names, deduplicated and sorted, without the call-site annotations.
+   *
+   * `unresolved` is written for a reader — every entry carries the file and line it came from —
+   * and parsing it back out to ask a question about a *name* would be a consumer depending on a
+   * display format. Two consumers need the name: `reach/graph.ts` tests whether a definition's
+   * bare name appears as the tail of a **qualified** reference, which is the one shape this graph
+   * cannot resolve (see `callsOf`); and a summary counts them.
+   *
+   * The qualified case is why this exists rather than a count. `Q::f` is captured as a call
+   * reference exactly as written — a C++ target produces them constantly — and resolution compares
+   * that whole string against the definition index, which holds `f` with `Q` in a separate column.
+   * So it resolves to nothing, which means no edge, which means the callee looks less reachable
+   * than it is, and `droppedCallersOf` does not see it because a reference that never resolved was
+   * never *dropped*. A real zlib scan turned that into a false `unreachable` (§20.39.8).
+   */
+  unresolvedNames: string[]
   /** Callee names several files define, with no same-file match to choose from. */
   ambiguous: string[]
 }
@@ -218,7 +247,9 @@ export const buildCallGraph = (source: CallGraphSource): CallGraph => {
   const edges: CallEdge[] = []
   const incoming = new Map<string, CallEdge[]>()
   const outgoing = new Map<string, CallEdge[]>()
+  const attributed = new Map<string, CallReference[]>()
   const unresolved: string[] = []
+  const unresolvedNames = new Set<string>()
   const ambiguous: string[] = []
   const droppedAmbiguous = new Map<string, number>()
   const droppedUnattributed = new Map<string, number>()
@@ -235,9 +266,15 @@ export const buildCallGraph = (source: CallGraphSource): CallGraph => {
       continue
     }
 
+    const callerKey = definitionKey(caller.filePath, caller.name)
+    const written = attributed.get(callerKey) ?? []
+    written.push(reference)
+    attributed.set(callerKey, written)
+
     const resolution = resolveName(index, reference.name, reference.filePath)
     if (resolution.kind === 'unresolved') {
       unresolved.push(`${reference.name} (called from ${reference.filePath}:${reference.line})`)
+      unresolvedNames.add(reference.name)
       continue
     }
     if (resolution.kind === 'ambiguous') {
@@ -273,6 +310,7 @@ export const buildCallGraph = (source: CallGraphSource): CallGraph => {
     edges,
     callersOf: (filePath, name) => incoming.get(definitionKey(filePath, name)) ?? [],
     edgesFrom: (filePath, name) => outgoing.get(definitionKey(filePath, name)) ?? [],
+    callsOf: (filePath, name) => attributed.get(definitionKey(filePath, name)) ?? [],
     droppedCallersOf: (name) => ({
       ambiguous: droppedAmbiguous.get(name) ?? 0,
       unattributed: droppedUnattributed.get(name) ?? 0,
@@ -280,6 +318,7 @@ export const buildCallGraph = (source: CallGraphSource): CallGraph => {
     referencesSeen: references.length,
     unattributed,
     unresolved,
+    unresolvedNames: [...unresolvedNames].sort(),
     ambiguous,
   }
 }

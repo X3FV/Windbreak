@@ -88,7 +88,10 @@ export {
   ruleViolations,
   sweepFunctions,
 } from './scan'
-export { buildCallGraph, enclosingCallable, readProgramModel } from './callgraph'
+// The call graph moved to `../interproc` — it is not a TOCTOU artifact and
+// reachability reads it too. `toctou` is a consumer of it now, like any other, so
+// it no longer re-exports the builder: one owner, and a second name for the same
+// function is how two implementations start.
 export { interprocFindings, summarizeCallee } from './interproc'
 export { callerLockVerdict, covered, lockIntervals } from './lockcontext'
 export { buildDefinitionIndex, definitionKey, resolveName } from './resolver'
@@ -117,13 +120,6 @@ export type { GlobalTouch, SignalShapeResult, SignalShapesInput } from './signal
 export type { RuleMiningResult } from './rules'
 export type { LineTranslator } from './describe'
 export type { SignalPrePass, SweepOptions, SweepResult } from './scan'
-export type {
-  CallEdge,
-  CallGraph,
-  CallGraphDefinition,
-  CallGraphSource,
-  CallReference,
-} from './callgraph'
 export type { CalleePathSummary, InterprocFinding } from './interproc'
 export type { LockInterval } from './lockcontext'
 export type { DefinitionIndex, NameResolution } from './resolver'

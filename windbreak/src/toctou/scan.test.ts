@@ -4,7 +4,7 @@ import path from 'path'
 import { afterEach, describe, expect, test } from 'bun:test'
 
 import { seedState } from '../pipeline/test-support'
-import { buildCallGraph } from './callgraph'
+import { buildCallGraph } from '../interproc/callgraph'
 import { atomicityRuleId } from './rules'
 import { sweepFunctions } from './scan'
 
