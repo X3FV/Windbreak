@@ -21,6 +21,11 @@ export const SARIF_SCHEMA_URI =
 /** SARIF levels are constrained; everything WindBreak emits is a defect. */
 const LEVEL_BY_TIER: Record<Finding['evidenceTier'], 'error' | 'warning' | 'note'> = {
   'human-reproduced': 'error',
+  // A dynamically confirmed finding is one whose defect *demonstrably manifested*,
+  // so it is an error like the human tier. SARIF's three levels cannot express the
+  // difference between a machine reproduction and a person's, and the tier is
+  // carried verbatim in `properties` — which is where a consumer should read it.
+  'dynamically-confirmed': 'error',
   'statically-verified': 'warning',
   // SARIF has no "contested", so it maps to `note`: the lowest-emphasis level is
   // the honest one for a claim two models disagree about.

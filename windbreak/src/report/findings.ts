@@ -53,6 +53,14 @@ export interface DeriveFindingsInput {
   candidates: readonly ReportableInput[]
   /** Candidate ids the researcher has asserted a reproduction for. */
   reproduced?: readonly string[]
+  /**
+   * Candidate ids the `confirm` stage reproduced on its own (§20.35).
+   *
+   * Kept separate from `reproduced` rather than merged into it because the two are
+   * different claims with different strengths, and §10's gate on library capture
+   * depends on telling them apart.
+   */
+  dynamicallyConfirmed?: readonly string[]
 }
 
 export interface ExcludedCandidate {
@@ -229,6 +237,7 @@ const buildEvidence = (input: {
 
 export const deriveFindings = (input: DeriveFindingsInput): DeriveFindingsResult => {
   const reproduced = new Set(input.reproduced ?? [])
+  const dynamicallyConfirmed = new Set(input.dynamicallyConfirmed ?? [])
   const findings: Finding[] = []
   const rediscoveries: ReportableInput[] = []
   const excluded: ExcludedCandidate[] = []
@@ -245,11 +254,16 @@ export const deriveFindings = (input: DeriveFindingsInput): DeriveFindingsResult
       continue
     }
 
-    // A recorded reproduction outranks the derived tier: the researcher ran the
-    // harness and saw it fail, which is strictly stronger evidence (§2.1.5).
+    // Each recorded observation outranks the tier derived from the candidate's
+    // state, and they only ever move it **up**: a human who ran it and watched is
+    // strongest, an automated reproduction next, then whatever the state implies.
+    // A run that reproduced nothing leaves the derived tier untouched — a bounded
+    // run is silence, not disproof (§20.35).
     const evidenceTier: EvidenceTier = reproduced.has(entry.candidate.id)
       ? 'human-reproduced'
-      : tier.tier
+      : dynamicallyConfirmed.has(entry.candidate.id)
+        ? 'dynamically-confirmed'
+        : tier.tier
 
     const hypothesis =
       firstReasoning(entry.verdicts, 'proposer') ??

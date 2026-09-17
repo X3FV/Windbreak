@@ -30,6 +30,26 @@ export interface SandboxPolicy {
   timeLimitSeconds: number
   /** Address-space cap (RLIMIT_AS), MiB. */
   memoryLimitMiB: number
+  /**
+   * How the memory cap is expressed to the OS, in MiB — or `null` to leave
+   * `RLIMIT_AS` unset entirely.
+   *
+   * Defaults to `memoryLimitMiB`, which is what every stage wanted until a
+   * sanitized build arrived. AddressSanitizer reserves terabytes of *virtual*
+   * address space for its shadow memory, and that reservation is not resident, so
+   * an `RLIMIT_AS` measured in megabytes kills the process before it starts:
+   *
+   * ```
+   * AddressSanitizer failed to allocate 0xdfff0001000 (15392894357504) bytes
+   * ReserveShadowMemoryRange failed while trying to map … Perhaps you're using ulimit -v
+   * ```
+   *
+   * A stage running sanitized code therefore says `null` here and bounds memory
+   * with the runtime's own resident-set limit instead. That is a real bound on the
+   * megabytes actually used; `RLIMIT_AS` on a sanitized binary is only a way to
+   * fail. Stages that run ordinary code keep the default, so nothing else changes.
+   */
+  addressSpaceLimitMiB: number | null
   /** CPU-seconds cap (RLIMIT_CPU). */
   cpuLimitSeconds: number
   /** Paths mounted read-only. The target checkout goes here, never writable. */

@@ -39,6 +39,7 @@ import { exitCliCleanly } from '../utils/exit-cleanly'
 import { getSystemMessage, getUserMessage } from '../utils/message-history'
 import { capturePendingAttachments } from '../utils/pending-attachments'
 import { getSkillByName } from '../utils/skill-registry'
+import { buildWindbreakPrompt } from '../utils/windbreak-launch'
 
 import type { MultilineInputHandle } from '../components/multiline-input'
 import type { InputValue, PendingAttachment } from '../types/store'
@@ -683,6 +684,25 @@ const ALL_COMMANDS: CommandDefinition[] = [
 
       // Otherwise enter plan mode
       useChatStore.getState().setInputMode('plan')
+    },
+  }),
+  // /windbreak — work WindBreak's adjudication queue (§5.3). This is the whole
+  // surface now: `freebuff windbreak` used to mount a screen of its own, and
+  // both entry paths send the same brief (utils/windbreak-launch) rather than
+  // each carrying its own idea of what the queue is for.
+  defineCommandWithArgs({
+    name: 'windbreak',
+    handler: (params, args) => {
+      params.saveToHistory(params.inputValue.trim())
+      clearInput(params)
+
+      params.sendMessage({
+        content: buildWindbreakPrompt(args),
+        agentMode: params.agentMode,
+      })
+      setTimeout(() => {
+        params.scrollToLatest()
+      }, 0)
     },
   }),
   defineCommandWithArgs({

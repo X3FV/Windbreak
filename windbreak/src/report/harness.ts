@@ -1,11 +1,13 @@
 /**
  * Manual harness generation (spec §4.7, §12.4).
  *
- * D21: WindBreak generates the harness and **does not execute it**. This module
- * is pure — it returns file contents and instructions as data and spawns
- * nothing. Actually running a harness is the researcher's job, outside
- * WindBreak; a future automated fuzzer slots in behind §12.4's interface without
- * redesign, which is why the output shape matches it.
+ * WindBreak generates the harness and **does not execute it**. This module is
+ * pure — it returns file contents and instructions as data and spawns nothing.
+ * Actually running a harness is the researcher's job, outside WindBreak. §12.4's
+ * interface was written so an automated fuzzer could slot in behind it without a
+ * redesign, and §20.35's `confirm` stage is that fuzzer — it runs a generated
+ * target *of its own*, not this artifact, which is why the output shape here
+ * still matches the contract.
  *
  * The generated PoC is a *skeleton*, and says so. It compiles against the
  * target, marks every decision the researcher has to make, and does not pretend
@@ -18,8 +20,9 @@
  * own. It does not link, and it cannot be checked against the target's real
  * signature — that is the decision left to the researcher, and guessing it would
  * be the same overclaim the rest of this module avoids. Compiling it *against the
- * target* is not done here and never will be: D21 keeps generation pure, so
- * `report/` spawns nothing.
+ * target* is not done here and never will be: generation stays pure, so
+ * `report/` spawns nothing — §20.35 puts execution in a stage of its own rather
+ * than widening this one.
  *
  * What *is* verified is that every shape this module can emit is valid C:
  * `harness.test.ts` compiles each one with `cc -fsyntax-only -Wall -Wextra` and

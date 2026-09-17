@@ -90,6 +90,9 @@ describe('buildSarifDocument', () => {
     expect(levelOf('human-reproduced')).toBe('error')
     expect(levelOf('statically-verified')).toBe('warning')
     expect(levelOf('contested')).toBe('note')
+    // §20.35: a defect that demonstrably manifested is an error, like the human
+    // tier — the finer distinction lives in `properties`, not in a SARIF level.
+    expect(levelOf('dynamically-confirmed')).toBe('error')
   })
 
   test('emits one deduplicated rule per pattern', () => {

@@ -32,8 +32,12 @@ export const buildNsjailArgv = (
     '--quiet',
     '--time_limit',
     String(timeLimit),
+    // `inf` is nsjail's spelling of "no limit", and it is what a sanitized build
+    // needs: see `SandboxPolicy` in `./types`.
     '--rlimit_as',
-    String(policy.memoryLimitMiB),
+    policy.addressSpaceLimitMiB === null
+      ? 'inf'
+      : String(policy.addressSpaceLimitMiB),
     '--rlimit_cpu',
     String(policy.cpuLimitSeconds),
     '--hostname',

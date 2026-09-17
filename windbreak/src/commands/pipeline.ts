@@ -11,6 +11,7 @@ import {
 } from '../client'
 import { loadEffectiveConfig } from '../config'
 import { OsvClient } from '../osv'
+import { describeProviderFailure, findProviderFailure } from '../provider-failure'
 import {
   runPipeline,
   createProgramContext,
@@ -200,6 +201,12 @@ export const registerPipelineCommand = (program: Command): void => {
               ? 'partial'
               : 'complete'
 
+        // §18, classified from the same warnings the summary prints. A stage with a
+        // refused account fails once per candidate, so the count above says `partial` and
+        // the reason is not in the count — it is in the hundred identical warnings, which
+        // is where it stays: each of them is a candidate left unchecked.
+        const providerFailure = findProviderFailure(result.warnings)
+
         if (options.json) {
           console.log(
             JSON.stringify(
@@ -213,6 +220,7 @@ export const registerPipelineCommand = (program: Command): void => {
                 verification: result.verification,
                 summary: result.summary,
                 budgetEvents: governor.events(),
+                providerFailure,
                 warnings: result.warnings,
               },
               null,
@@ -231,6 +239,10 @@ export const registerPipelineCommand = (program: Command): void => {
             `verification ${formatSeconds(governor.quotaSeconds('verification'))}`,
         )
         console.log(`status:       ${status}`)
+
+        if (providerFailure) {
+          console.log(`\nBLOCKED: ${describeProviderFailure(providerFailure)}`)
+        }
 
         if (result.rediscovery > 0) {
           console.log(

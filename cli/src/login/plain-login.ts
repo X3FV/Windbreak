@@ -9,6 +9,7 @@ import {
   trackEvent,
 } from '../utils/analytics'
 import { saveUserCredentials } from '../utils/auth'
+import { BRAND } from '../utils/brand'
 import { IS_FREEBUFF } from '../utils/constants'
 import { getFingerprintId } from '../utils/fingerprint'
 import { logger } from '../utils/logger'
@@ -27,7 +28,7 @@ export async function runPlainLogin(): Promise<void> {
   const fingerprintId = await getFingerprintId()
 
   console.log()
-  console.log(bold(IS_FREEBUFF ? 'Freebuff Login' : 'Codebuff Login'))
+  console.log(bold(`${BRAND.name} Login`))
   console.log()
   console.log('Generating login URL...')
 

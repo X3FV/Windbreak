@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync, watch } from 'fs'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
 
+import { BRAND } from './brand'
 import { getCliEnv } from './env'
 
 import type { MarkdownPalette } from './markdown-renderer'
@@ -92,19 +93,23 @@ export function getLogoBlockColor(
 }
 
 /**
- * Get the accent color for the logo based on theme and terminal capabilities.
- * Returns the primary green color with appropriate fallback.
+ * The brand colour for the wordmark, per theme and terminal capability.
+ *
+ * Read from `BRAND` rather than restated here: every logo draw site takes this
+ * (`chat-header`, the landing screen, the login modal, the project picker), so the
+ * identity module is the one place a rebrand has to reach. The ANSI names cover
+ * terminals with no truecolor to give — `chat-header`'s home of 16-colour
+ * terminals is the reason the fallback exists at all.
  */
 export function getLogoAccentColor(
   themeName: ThemeName,
   env: CliEnv = getCliEnv(),
 ): string {
   const isTruecolor = supportsTruecolor(env)
-  // The primary green color - 'lime' is CSS bright green
   if (themeName === 'dark') {
-    return isTruecolor ? '#9EFC62' : 'lime'
+    return isTruecolor ? BRAND.accent : BRAND.accentAnsi
   }
-  return isTruecolor ? '#65A83E' : 'green'
+  return isTruecolor ? BRAND.accentLight : BRAND.accentAnsi
 }
 
 const IDE_THEME_INFERENCE = {
@@ -832,12 +837,12 @@ const DEFAULT_CHAT_THEMES: Record<ThemeName, ChatTheme> = {
   dark: {
     name: 'dark',
     // Core semantic colors
-    primary: '#9EFC62',
+    primary: BRAND.accent,
     secondary: '#a3aed0',
     success: '#22c55e',
     error: '#ef4444',
     warning: '#FFA500',
-    info: '#9EFC62',
+    info: BRAND.accent,
     link: '#3B82F6',
     directory: '#9CA3AF',
 
@@ -851,7 +856,7 @@ const DEFAULT_CHAT_THEMES: Record<ThemeName, ChatTheme> = {
 
     // Context-specific
     aiLine: '#6b7280',
-    userLine: '#9EFC62',
+    userLine: BRAND.accent,
 
     // Agent backgrounds
     agentToggleHeaderBg: '#f97316',
@@ -897,12 +902,12 @@ const DEFAULT_CHAT_THEMES: Record<ThemeName, ChatTheme> = {
   light: {
     name: 'light',
     // Core semantic colors
-    primary: '#65A83E',
+    primary: BRAND.accentLight,
     secondary: '#6b7280',
     success: '#059669',
     error: '#ef4444',
     warning: '#F59E0B',
-    info: '#65A83E',
+    info: BRAND.accentLight,
     link: '#2563EB',
     directory: '#6B7280',
 
@@ -916,7 +921,7 @@ const DEFAULT_CHAT_THEMES: Record<ThemeName, ChatTheme> = {
 
     // AI/User context
     aiLine: '#6b7280',
-    userLine: '#65A83E',
+    userLine: BRAND.accentLight,
 
     // Agent context
     agentToggleHeaderBg: '#ea580c',

@@ -280,6 +280,72 @@ describe('runScan', () => {
     db.close()
   })
 
+  test('a refused account is reported once, on the result (§18)', async () => {
+    // The wall of noise this exists for: with a refused balance every triaged candidate
+    // leaves its own `warning:` line, and the one fact they share — that the account is
+    // out of credits — is not in any of them. The result carries it once, and the
+    // per-candidate lines stay, because each one is a candidate left unexamined.
+    const db = scanDatabase()
+    seedScanTarget({ db })
+
+    const result = await runScan(
+      options(db, {
+        deps: createScanDeps(),
+        resolveInvoker: async () => ({
+          ok: true,
+          invoker: createFakeInvoker({
+            respond: () =>
+              new Error(
+                'triage: Out of credits. Please add credits at ' +
+                  'https://www.codebuff.com/usage.',
+              ),
+          }),
+        }),
+      }),
+    )
+
+    expect(result.providerFailure?.kind).toBe('credits')
+    expect(result.providerFailure?.detail).toContain('Out of credits')
+    expect(result.warnings.some((warning) => warning.includes('triage failed'))).toBe(true)
+    // The run is still `partial` for its own reasons, not `failed`: what did not happen is
+    // the model stages, and the static ones are real work.
+    expect(result.status).toBe('partial')
+    db.close()
+  })
+
+  test('a run with no credentials at all is the same kind of statement', async () => {
+    // A stage that never ran because the environment had no credentials is not a model
+    // failure, but it is the same *decision* for a reader: nothing that needed a model
+    // happened, and the fix is theirs to make.
+    const db = scanDatabase()
+    seedScanTarget({ db })
+
+    const result = await runScan(
+      options(db, {
+        deps: createScanDeps(),
+        resolveInvoker: async () => ({
+          ok: false,
+          reason: 'No Freebuff credentials found. Run `freebuff` to log in.',
+        }),
+      }),
+    )
+
+    expect(result.providerFailure?.kind).toBe('auth')
+    db.close()
+  })
+
+  test('a scan nothing refused carries no refusal', async () => {
+    const db = scanDatabase()
+    seedScanTarget({ db })
+
+    const result = await runScan(
+      options(db, { deps: createScanDeps(), resolveInvoker: async () => ({ ok: true, invoker: triageInvoker() }) }),
+    )
+
+    expect(result.providerFailure).toBeNull()
+    db.close()
+  })
+
   test('a degraded stage is retried by a later resume', async () => {
     const db = scanDatabase()
     seedScanTarget({ db })

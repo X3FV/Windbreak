@@ -2,7 +2,11 @@
  * Reporting orchestration (spec §13, build order step 8).
  *
  * Reads recorded state, writes artifacts locally, records them. No model calls,
- * no network, and — critically — no execution of anything it generates (D21).
+ * no network, and — critically — no execution of anything it generates. D21 made
+ * that absolute by banning execution anywhere; §20.35 narrows it instead, moving
+ * execution into the `confirm` stage, which is sandboxed and records to its own
+ * table. This stage still runs nothing: it only *reads* what `confirm` proved, and
+ * a harness it emits is still never executed by the code that emitted it.
  *
  * Artifacts carry live exploit detail, and §17 item 8 leaves their storage and
  * any encryption-at-rest unresolved. Until that is decided the safe default is
@@ -15,6 +19,7 @@ import path from 'path'
 
 import { createBuildPlan } from '../build/plan'
 import { detectBuildSystem } from '../build/detect'
+import { readConfirmedCandidateIds } from '../confirm/persist'
 
 import { deriveFindings } from './findings'
 import { generateHarness } from './harness'
@@ -176,9 +181,16 @@ export const runReport = async (options: ReportOptions): Promise<ReportResult> =
     programContext: options.programContext,
   })
 
+  // §20.35: the `confirm` stage records its reproductions in the database, and
+  // reporting reads them the same way it reads the researcher's `--reproduced`
+  // assertion. Both only ever move a tier up, so a run's artifacts say
+  // `dynamically-confirmed` without anyone re-running anything by hand.
+  const dynamicallyConfirmed = readConfirmedCandidateIds(options.db, options.runId)
+
   const { findings, rediscoveries, excluded } = deriveFindings({
     candidates: inputs,
     ...(options.reproduced ? { reproduced: options.reproduced } : {}),
+    ...(dynamicallyConfirmed.length > 0 ? { dynamicallyConfirmed } : {}),
   })
 
   const warnings: string[] = []

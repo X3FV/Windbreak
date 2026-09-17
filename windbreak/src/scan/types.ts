@@ -11,6 +11,7 @@
 
 import type { Database } from 'bun:sqlite'
 import type { WindbreakConfig } from '../config'
+import type { ProviderFailure } from '../provider-failure'
 import type { ReportResult } from '../report'
 import type { SandboxBackendName } from '../sandbox/types'
 import type { ModelInvoker } from '../pipeline'
@@ -197,5 +198,18 @@ export interface ScanResult {
    * `not swept` number next to it.
    */
   languageCoverage: LanguageCoverage
+  /**
+   * The account-level refusal this scan hit, or null (§18, `provider-failure.ts`).
+   *
+   * On the result for the same reason `languageCoverage` is: the summaries print it,
+   * and the thing they print it *about* is the whole run rather than one candidate. A
+   * depleted balance leaves one `warning:` per triaged candidate — each of them true, and
+   * together a wall in which the fact that every one of them has the same cause is
+   * invisible. This is that fact, stated once, where the counts are.
+   *
+   * Read from the stage warnings rather than from a counter: the failures are the
+   * evidence, and a second tally would be a second thing to keep in step with them.
+   */
+  providerFailure: ProviderFailure | null
   warnings: string[]
 }

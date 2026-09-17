@@ -28,6 +28,7 @@ import { useNow } from '../hooks/use-now'
 import { useSheenAnimation } from '../hooks/use-sheen-animation'
 import { useTerminalDimensions } from '../hooks/use-terminal-dimensions'
 import { useTheme } from '../hooks/use-theme'
+import { BRAND } from '../utils/brand'
 import { exitCliCleanly } from '../utils/exit-cleanly'
 import {
   formatFreebuffPremiumResetCountdown,
@@ -74,7 +75,15 @@ interface FreebuffLandingScreenProps {
 /** Landing-screen heading. Referenced both as rendered text and by the
  *  picker's height-budget math (wrappedRows), so it lives in one place to keep
  *  the two from drifting. */
-const LANDING_HEADING = 'Start coding for free'
+/**
+ * The call to action under the wordmark.
+ *
+ * Owned by the brand rather than written here, so the product's voice lives with
+ * its identity. Every layout figure that depends on it (`headingWidth`, the
+ * wrapped-row budget) is derived from this constant, so changing the words
+ * reflows the screen without a second edit.
+ */
+const LANDING_HEADING = BRAND.heading
 const COLLAPSED_LOGO_MIN_HEIGHT = 26
 
 /** "in ~3h 20m" / "in ~45 min" / "in under a minute". Used on the
@@ -104,17 +113,17 @@ const getLimitedModeNotice = (
 
 function getTakeoverErrorMessage(failure: FreebuffSessionFailure): string {
   if (failure.type === 'http' && failure.statusCode === 503) {
-    return "Freebuff is busy and couldn't complete the takeover yet."
+    return `${BRAND.name} is busy and couldn't complete the takeover yet.`
   }
   if (failure.type === 'timeout') {
     return failure.outcomeUnknown
       ? 'The takeover request timed out and may have succeeded. Check the warning, then retry if you still want to take over.'
       : failure.retry
-        ? 'The takeover request timed out while Freebuff was busy.'
+        ? `The takeover request timed out while ${BRAND.name} was busy.`
         : 'The takeover request timed out.'
   }
   if (failure.outcomeUnknown) {
-    return "Freebuff couldn't confirm whether the takeover succeeded. Check the warning, then retry if you still want to take over."
+    return `${BRAND.name} couldn't confirm whether the takeover succeeded. Check the warning, then retry if you still want to take over.`
   }
   return failure.message.trim()
     ? `Takeover failed: ${failure.message}`

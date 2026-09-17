@@ -2,7 +2,7 @@ import React, { useMemo } from 'react'
 
 import { LOGO, LOGO_SMALL, SHADOW_CHARS } from '../login/constants'
 import { parseLogoLines } from '../login/utils'
-import { IS_FREEBUFF } from '../utils/constants'
+import { BRAND, BRAND_NAME_UPPER, WORDMARK_ROWS } from '../utils/brand'
 
 interface UseLogoOptions {
   /**
@@ -19,7 +19,7 @@ interface UseLogoOptions {
    */
   textColor?: string
   /**
-   * Accent color for shadow/border characters (defaults to acid green #9EFC62)
+   * Accent color for shadow/border characters (defaults to the brand's own)
    */
   accentColor?: string
   /**
@@ -52,8 +52,8 @@ interface LogoResult {
  *
  * Returns:
  * - Full ASCII logo for width >= 70
- * - Small ASCII logo for width >= 40
- * - Text variant "CODEBUFF" or "Codebuff CLI" for narrow widths
+ * - Small ASCII logo for width >= 20
+ * - Text variant, the bare brand name or its CLI form, below that
  *
  * The hook handles ALL formatting internally including:
  * - Line parsing and width limiting
@@ -61,29 +61,48 @@ interface LogoResult {
  * - Text wrapping and block formatting for plain text contexts
  * - No consumer needs to know about parseLogoLines, split, join, etc.
  */
+/**
+ * Widths at which each form of the mark is drawn.
+ *
+ * Kept as fixed thresholds rather than derived from each mark's own width, which
+ * is how this hook has always decided: Freebuff's art is 66 columns wide but has
+ * always been drawn from 70, and "draw it as soon as it fits" would move that
+ * boundary for the two upstream identities. The fork's mark is 62 wide and sits
+ * comfortably inside the same threshold, so it needs no rule of its own.
+ */
+const FULL_WORDMARK_MIN_WIDTH = 70
+const MONOGRAM_MIN_WIDTH = 20
+
+/**
+ * Below this, the text variant drops the "CLI" suffix — "Freebuff CLI" reads as
+ * filler in a space that is already too narrow for the art.
+ */
+const CLI_NAME_MIN_WIDTH = 30
+
 export const useLogo = ({
   availableWidth,
   applySheenToChar,
   textColor,
-  accentColor = '#9EFC62',
+  accentColor = BRAND.accent,
   blockColor = '#ffffff',
   maxHeight,
 }: UseLogoOptions): LogoResult => {
-  // The ASCII art (full and small) is 6 lines tall. If the caller can't spare
-  // that many rows, collapse straight to the single-line text variant.
-  const ASCII_LOGO_LINES = 6
+  // The brand's art is `WORDMARK_ROWS` tall, and the monogram shares that height.
+  // A caller who cannot spare the rows gets the text variant rather than clipped
+  // art. Both bounds are the art's own measurements, so neither has to be kept in
+  // step with it by hand.
   const rawLogoString = useMemo(() => {
-    if (maxHeight != null && maxHeight < ASCII_LOGO_LINES) {
-      return IS_FREEBUFF ? 'FREEBUFF' : 'CODEBUFF'
+    if (maxHeight != null && maxHeight < WORDMARK_ROWS) {
+      return BRAND_NAME_UPPER
     }
-    if (availableWidth >= 70) return LOGO
-    if (availableWidth >= 20) return LOGO_SMALL
-    return IS_FREEBUFF ? 'FREEBUFF' : 'CODEBUFF'
+    if (availableWidth >= FULL_WORDMARK_MIN_WIDTH) return LOGO
+    if (availableWidth >= MONOGRAM_MIN_WIDTH) return LOGO_SMALL
+    return BRAND_NAME_UPPER
   }, [availableWidth, maxHeight])
 
   // Format text block for plain text contexts (chat messages, etc.)
   const textBlock = useMemo(() => {
-    if (rawLogoString === 'CODEBUFF' || rawLogoString === 'FREEBUFF') {
+    if (rawLogoString === BRAND_NAME_UPPER) {
       return '' // Don't show ASCII art for text-only variant in plain text contexts
     }
     // Parse and format for plain text display
@@ -95,16 +114,14 @@ export const useLogo = ({
   // Format component for React contexts (login modal, etc.)
   const component = useMemo(() => {
     // Text-only variant for very narrow widths
-    if (rawLogoString === 'CODEBUFF' || rawLogoString === 'FREEBUFF') {
-      const brandName = IS_FREEBUFF ? 'Freebuff' : 'Codebuff'
+    if (rawLogoString === BRAND_NAME_UPPER) {
       // When we collapsed to text purely to fit a short terminal (not because
-      // the terminal is narrow), keep it to the bare brand name — "Freebuff
-      // CLI" reads as filler in that already-cramped space.
-      const forcedByHeight = maxHeight != null && maxHeight < ASCII_LOGO_LINES
+      // the terminal is narrow), keep it to the bare brand name.
+      const forcedByHeight = maxHeight != null && maxHeight < WORDMARK_ROWS
       const displayText =
-        availableWidth < 30 || forcedByHeight
-          ? brandName
-          : `${brandName} CLI`
+        availableWidth < CLI_NAME_MIN_WIDTH || forcedByHeight
+          ? BRAND.name
+          : BRAND.cliName
 
       return (
         <text style={{ wrapMode: 'none' }}>

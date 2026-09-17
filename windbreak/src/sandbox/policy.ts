@@ -116,6 +116,13 @@ export interface CreateSandboxPolicyOptions {
   workingDirectory: string
   timeLimitSeconds?: number
   memoryLimitMiB?: number
+  /**
+   * `null` leaves `RLIMIT_AS` unset. Omitted, it mirrors `memoryLimitMiB`.
+   *
+   * A sanitized build is the caller that needs this — see `SandboxPolicy` in
+   * `./types` for why a virtual-address cap and AddressSanitizer cannot coexist.
+   */
+  addressSpaceLimitMiB?: number | null
   cpuLimitSeconds?: number
   environment?: Record<string, string>
   mountPseudoFilesystems?: boolean
@@ -173,11 +180,18 @@ export const createSandboxPolicy = (
     })),
   ]
 
+  const memoryLimitMiB =
+    options.memoryLimitMiB ?? DEFAULT_SANDBOX_LIMITS.memoryLimitMiB
+
   return {
     timeLimitSeconds:
       options.timeLimitSeconds ?? DEFAULT_SANDBOX_LIMITS.timeLimitSeconds,
-    memoryLimitMiB:
-      options.memoryLimitMiB ?? DEFAULT_SANDBOX_LIMITS.memoryLimitMiB,
+    memoryLimitMiB,
+    // Defaults to the declared cap, so every existing caller is unchanged.
+    addressSpaceLimitMiB:
+      options.addressSpaceLimitMiB === undefined
+        ? memoryLimitMiB
+        : options.addressSpaceLimitMiB,
     cpuLimitSeconds:
       options.cpuLimitSeconds ?? DEFAULT_SANDBOX_LIMITS.cpuLimitSeconds,
     readOnlyBinds: resolveOptionalBinds(

@@ -76,6 +76,63 @@ describe('error-handling', () => {
       }
       expect(isOutOfCreditsError(error)).toBe(true)
     })
+
+    test('recognises the account refusal when no status code arrives', () => {
+      // The live shape (WindBreak spec §20.34): the depleted-balance refusal arrives
+      // on the agent-run error path carrying a message and no status. Read as a status
+      // alone, it used to render as an ordinary error, leaving the composer open and
+      // making an account problem read as a question that went unanswered.
+      expect(
+        isOutOfCreditsError({
+          type: 'error',
+          message:
+            'Out of credits. Please add credits at https://www.codebuff.com/usage.',
+        }),
+      ).toBe(true)
+
+      expect(
+        isOutOfCreditsError(
+          'investigator: Out of credits. Please add credits at https://www.codebuff.com/usage.',
+        ),
+      ).toBe(true)
+
+      expect(isOutOfCreditsError(new Error('Please add credits'))).toBe(true)
+    })
+
+    test('finds the message inside a response body too', () => {
+      expect(
+        isOutOfCreditsError({
+          message: 'Too Many Requests',
+          responseBody: JSON.stringify({
+            message:
+              'Out of credits. Please add credits at https://codebuff.com/usage',
+          }),
+        }),
+      ).toBe(true)
+    })
+
+    test('leaves upstream provider quota wording alone', () => {
+      // `isFreebuffProviderUsageError` owns these. The client shows provider wording
+      // verbatim and Freebuff reframes it as its own provider cost, so neither is a
+      // call to buy credits and neither may take the composer over. The pattern has to
+      // stay this narrow for the wording half of the check to mean anything.
+      for (const message of [
+        'Not Enough Credits',
+        'Insufficient credits. Add more using https://openrouter.ai/settings/credits',
+      ]) {
+        expect(isOutOfCreditsError({ statusCode: 500, message })).toBe(false)
+      }
+    })
+
+    test('leaves an ordinary failure alone', () => {
+      for (const message of [
+        'triage returned no structured value: the agent ended its turn without calling `set_output`',
+        'cand-7: triage failed (triage call failed: fetch failed); left untriaged.',
+        'Payment required',
+      ]) {
+        expect(isOutOfCreditsError({ message })).toBe(false)
+      }
+    })
   })
 
   describe('isFreeModeUnavailableError', () => {

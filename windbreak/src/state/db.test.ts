@@ -18,6 +18,9 @@ const EXPECTED_TABLES = [
   'candidates',
   'checker_replays',
   'checkers',
+  // §20.35's automated dynamic confirmation: one row per candidate per run, so the
+  // stage can say how often it was unable to run as well as what it reproduced.
+  'confirmations',
   'dependencies',
   'findings',
   'investigator_turns',

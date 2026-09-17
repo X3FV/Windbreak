@@ -8,7 +8,7 @@ import { Database } from 'bun:sqlite'
  * Stored in `PRAGMA user_version` so a mismatched database fails loudly rather
  * than being silently misread.
  */
-export const SCHEMA_VERSION = 7
+export const SCHEMA_VERSION = 8
 
 export const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS runs (
@@ -344,6 +344,35 @@ CREATE INDEX IF NOT EXISTS idx_osv_matches_vuln ON osv_matches(target_id, vuln_i
 CREATE INDEX IF NOT EXISTS idx_symbols_target_name ON symbols(target_id, name);
 CREATE INDEX IF NOT EXISTS idx_symbols_target_file ON symbols(target_id, file_path);
 CREATE INDEX IF NOT EXISTS idx_symbol_refs_target_name ON symbol_refs(target_id, name);
+
+-- Automated dynamic confirmation (spec §20.35). One row per candidate per run.
+--
+-- Every attempt is recorded, not only the ones that worked out. A table holding
+-- just the successes could not answer the question a reader actually has — how
+-- often this stage was *unable* to run — and a build failure is a fact about
+-- the machine, not about the finding, so losing it would make a broken host
+-- look like clean code.
+CREATE TABLE IF NOT EXISTS confirmations (
+  id TEXT PRIMARY KEY,
+  candidate_id TEXT NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+  run_id TEXT NOT NULL,
+  -- 'confirmed' | 'unattributed' | 'not-reproduced' | 'ineligible'
+  -- | 'build-failed' | 'run-failed'
+  outcome TEXT NOT NULL,
+  -- Why, in the case's own terms. Never null: an outcome without a reason is
+  -- exactly what this stage exists to avoid stating.
+  detail TEXT NOT NULL,
+  -- The sanitizer's category, when one fired.
+  signature TEXT,
+  -- JSON {filePath, line}, when the report landed in the finding's own code.
+  location TEXT,
+  fuzz_seconds INTEGER NOT NULL,
+  duration_ms INTEGER NOT NULL,
+  created_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_confirmations_candidate ON confirmations(candidate_id);
+CREATE INDEX IF NOT EXISTS idx_confirmations_run ON confirmations(run_id);
 `
 
 export class SchemaVersionMismatchError extends Error {

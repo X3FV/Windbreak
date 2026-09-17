@@ -4,7 +4,7 @@ import { useLogo } from '../hooks/use-logo'
 import { useSheenAnimation } from '../hooks/use-sheen-animation'
 import { useTerminalDimensions } from '../hooks/use-terminal-dimensions'
 import { useTheme } from '../hooks/use-theme'
-import { IS_FREEBUFF } from '../utils/constants'
+import { BRAND } from '../utils/brand'
 import { openFileAtPath } from '../utils/open-file'
 import { formatCwd } from '../utils/path-helpers'
 import { getLogoAccentColor, getLogoBlockColor } from '../utils/theme-system'
@@ -56,8 +56,19 @@ export const ChatHeader = memo(function ChatHeader({
       >
         {logoComponent}
       </box>
+      {/* The tagline sits directly under the wordmark in the brand colour, which
+          is what makes the header read as a branded surface rather than the
+          wordmark plus a paragraph. It is the one line here that is pure
+          identity, so it is the one line drawn in the accent — and it is drawn
+          only for a brand that asks for it, so the fork's restyle in this header
+          does not reach the Freebuff one. */}
+      {BRAND.headerTagline && (
+        <text style={{ wrapMode: 'word', fg: accentColor }}>
+          {BRAND.tagline}
+        </text>
+      )}
       <text style={{ wrapMode: 'word', marginBottom: 1, fg: theme.foreground }}>
-        {IS_FREEBUFF ? 'Freebuff' : 'Codebuff'} will run commands on your behalf
+        {BRAND.name} will run commands on your behalf
         to help you build.
       </text>
       <text style={{ wrapMode: 'word', marginBottom: 1, fg: theme.foreground }}>

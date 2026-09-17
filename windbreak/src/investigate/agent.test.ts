@@ -378,6 +378,76 @@ describe('one investigator turn', () => {
   })
 })
 
+describe('an account-level refusal (§18)', () => {
+  test('a billed refusal is classified, and is not one of the ordinary failures', async () => {
+    // The live wording, from a real depleted account. The turn still reports what
+    // happened; `failure` is what lets a surface say it will happen again.
+    const workspace = await makeWorkspace()
+    const turn = await createInvestigator({
+      workspace,
+      client: fakeClient({
+        type: 'error',
+        message: 'Out of credits. Please add credits at https://www.codebuff.com/usage.',
+      }),
+    }).ask({ prompt: 'hunt' })
+
+    expect(turn.failure?.kind).toBe('credits')
+    expect(turn.failure?.detail).toContain('Out of credits')
+    expect(turn.error as string).toContain('Out of credits')
+  })
+
+  test('a rejected credential is classified from the status the throw carries', async () => {
+    // The SDK throws rather than returning an error output here, and its message
+    // (`Authentication failed`) does not name the account — the status code is the only
+    // thing that distinguishes it from any other failing call.
+    const workspace = await makeWorkspace()
+    const client = {
+      run: async () => {
+        const error = new Error('Authentication failed') as Error & { statusCode: number }
+        error.statusCode = 401
+        throw error
+      },
+    } as unknown as CodebuffClient
+
+    const turn = await createInvestigator({ workspace, client }).ask({ prompt: 'hunt' })
+    expect(turn.failure?.kind).toBe('auth')
+  })
+
+  test('an ordinary failure carries no refusal', async () => {
+    const workspace = await makeWorkspace()
+    const turn = await createInvestigator({
+      workspace,
+      client: fakeClient({ type: 'error', message: 'rate limited' }),
+    }).ask({ prompt: 'hunt' })
+
+    expect(turn.failure).toBeNull()
+  })
+
+  test('a turn the researcher stopped is cancelled, not refused', async () => {
+    // A cancellation must not be read as the account being refused: §20.29.5 slice 6
+    // keeps "you stopped it" separate from "it broke", and this would collapse it into
+    // a third thing.
+    const workspace = await makeWorkspace()
+    const controller = new AbortController()
+    const client = {
+      run: async () => {
+        controller.abort()
+        const error = new Error('Authentication failed') as Error & { statusCode: number }
+        error.statusCode = 401
+        throw error
+      },
+    } as unknown as CodebuffClient
+
+    const turn = await createInvestigator({ workspace, client }).ask({
+      prompt: 'hunt',
+      signal: controller.signal,
+    })
+
+    expect(turn.cancelled).toBe(true)
+    expect(turn.failure).toBeNull()
+  })
+})
+
 describe('what a turn cost (§20.29.6)', () => {
   test('root model requests and their tokens are counted, sub-agent ones are not', async () => {
     // The budget's unit is what a provider charges for. `onUsage` fires once per

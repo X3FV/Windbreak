@@ -42,12 +42,14 @@
 
 import { TRUST_FRAMING } from '../pipeline/prompt'
 import { DEFAULT_MODEL_CONFIG } from '../models'
+import { classifyProviderFailure, statusCodeOf } from '../provider-failure'
 
 import { DEFAULT_INVESTIGATOR_STEPS } from './limits'
 import { DEFAULT_INVESTIGATOR_AGENT, createInvestigatorTools, investigatorToolNames } from './tools'
 
 import type { AgentDefinition, CodebuffClient, RunOptions } from '@codebuff/sdk'
 import type { ModelRoleConfig } from '../models'
+import type { ProviderFailure } from '../provider-failure'
 import type { ProposedSite, ProposalRejection } from './propose'
 import type { CopyWriteRecord, InvestigatorAgentName, InvestigatorToolOptions, ToolResultRecord } from './tools'
 import type { InvestigatorWorkspace } from './workspace'
@@ -222,6 +224,17 @@ export interface InvestigatorTurn {
   /** Total tokens across those requests, when reported. Informational, never a ceiling. */
   totalTokens: number
   error: string | null
+  /**
+   * Why the turn was refused, when the reason was the *account* rather than the call
+   * (§18, `provider-failure.ts`).
+   *
+   * Separate from `error`, which says what happened in one turn. This says the turn
+   * could not have happened, and neither could the next one: a balance with no credits
+   * or a credential the provider rejects is a fact about the caller, so a surface has to
+   * be able to tell it apart from the ordinary failures a long session accumulates.
+   * Null whenever `error` is null, and for every failure that is about the call itself.
+   */
+  failure: ProviderFailure | null
 }
 
 export interface InvestigatorOptions {
@@ -381,9 +394,19 @@ export const createInvestigator = (options: InvestigatorOptions): Investigator =
        * cancelled mid-flight reports itself as cancelled even though the SDK settles it as
        * a plain error (`getCancelledRunState` produces `{ type: 'error' }`).
        */
-      const outcome = (
-        partial: Pick<InvestigatorTurn, 'ok' | 'answer' | 'error'>,
-      ): InvestigatorTurn => ({
+      const outcome = ({
+        statusCode,
+        ...partial
+      }: Pick<InvestigatorTurn, 'ok' | 'answer' | 'error'> & {
+        /**
+         * The thrown error's HTTP status, where there is one to read.
+         *
+         * Read at the throw site and passed in rather than carried on the type: it is
+         * evidence for the classification below and not a fact about the turn, and the
+         * `output` path has no status to offer at all.
+         */
+        statusCode?: number | undefined
+      }): InvestigatorTurn => ({
         ...partial,
         agent,
         cancelled: signal?.aborted === true,
@@ -393,6 +416,13 @@ export const createInvestigator = (options: InvestigatorOptions): Investigator =
         proposals,
         proposalRejections,
         writes,
+        // Classified from the error the turn is reporting, so the two cannot disagree:
+        // an `error` that reads as a refusal but is not labelled as one is the failure
+        // this field exists to prevent.
+        failure: classifyProviderFailure({
+          message: partial.error ?? '',
+          statusCode,
+        }),
       })
 
       /** Wording for a turn the caller stopped, used wherever the abort surfaces. */
@@ -510,6 +540,10 @@ export const createInvestigator = (options: InvestigatorOptions): Investigator =
             : `investigator run failed: ${
                 error instanceof Error ? error.message : String(error)
               }`,
+          // The path a rejected credential takes: the SDK throws rather than returning
+          // an error output, and the message it throws (`Authentication failed`) does
+          // not name the account — the status is what makes the refusal legible.
+          statusCode: signal?.aborted ? undefined : statusCodeOf(error),
         })
       }
     },

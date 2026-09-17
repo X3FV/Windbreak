@@ -1,5 +1,10 @@
 import { loadEffectiveConfig } from '../config'
-import { formatInterproceduralCoverage, formatLanguageCoverage, runScan } from '../scan'
+import {
+  describeProviderFailure,
+  formatInterproceduralCoverage,
+  formatLanguageCoverage,
+  runScan,
+} from '../scan'
 import { openStateDatabase } from '../state/db'
 import { VERSION } from '../version'
 import {
@@ -42,6 +47,17 @@ const renderSummary = (result: ScanResult): void => {
   console.log(`target id:    ${result.targetId}`)
   console.log(`commit:       ${result.commitSha}`)
   console.log(`status:       ${result.status}`)
+
+  // §18, and stated before the stage table rather than after it: when the account was
+  // refused, that is the reason the model stages look the way they do, and a reader who
+  // stopped at `partial` would go looking for a bug in the target instead.
+  //
+  // The per-candidate `warning:` lines below are left alone on purpose. Each one is a real
+  // candidate left unexamined, and a summary that dropped them would be claiming a net the
+  // run did not have — the wall of them is exactly why the cause needs saying once, up here.
+  if (result.providerFailure) {
+    console.log(`\nBLOCKED: ${describeProviderFailure(result.providerFailure)}`)
+  }
 
   console.log('\nstages:')
   for (const stage of result.stages) {

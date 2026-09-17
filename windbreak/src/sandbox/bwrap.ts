@@ -4,7 +4,10 @@ import type { SandboxRequest } from './types'
  * Apply rlimits before exec, because bubblewrap has no rlimit flags.
  *
  * Passed as `sh -c <script> windbreak-sandbox <memKiB> <cpuSec> <cmd...>` so the
- * real command arrives as positionals and never needs shell quoting.
+ * real command arrives as positionals and never needs shell quoting. The memory
+ * word is either a KiB count or `unlimited`, which POSIX `ulimit` accepts and
+ * which a stage running a sanitized build needs — see `SandboxPolicy` in
+ * `./types` for why `RLIMIT_AS` and AddressSanitizer cannot coexist.
  */
 export const RLIMIT_WRAPPER_SCRIPT =
   'ulimit -v "$1" 2>/dev/null || true; ulimit -t "$2" 2>/dev/null || true; shift 2; exec "$@"'
@@ -23,7 +26,9 @@ export const wrapCommandWithRlimits = (request: SandboxRequest): string[] => {
     '-c',
     RLIMIT_WRAPPER_SCRIPT,
     RLIMIT_WRAPPER_NAME,
-    String(policy.memoryLimitMiB * 1024),
+    policy.addressSpaceLimitMiB === null
+      ? 'unlimited'
+      : String(policy.addressSpaceLimitMiB * 1024),
     String(policy.cpuLimitSeconds),
     ...request.command,
   ]

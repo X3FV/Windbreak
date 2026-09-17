@@ -4,6 +4,7 @@ import { createRoot, flushSync } from '@opentui/react'
 import React from 'react'
 
 import { TakeoverPrompt } from '../freebuff-landing-screen'
+import { BRAND } from '../../utils/brand'
 import { initializeThemeStore } from '../../hooks/use-theme'
 
 let cleanupRenderer: (() => void) | undefined
@@ -56,7 +57,7 @@ describe('TakeoverPrompt', () => {
     const frame = setup.captureCharFrame()
 
     expect(frame).toContain(
-      'The takeover request timed out while Freebuff was busy.',
+      `The takeover request timed out while ${BRAND.name} was busy.`,
     )
     expect(frame).toContain('Retrying automatically in')
     expect(frame).toContain('(attempt 2).')
@@ -100,8 +101,10 @@ describe('TakeoverPrompt', () => {
     })
     const frame = setup.captureCharFrame()
 
+    // Derived from the brand rather than pinned, so this asserts the behaviour — a
+    // 503 becomes the product's busy copy — instead of one product's name.
     expect(frame).toContain(
-      "Freebuff is busy and couldn't complete the takeover yet.",
+      `${BRAND.name} is busy and couldn't complete the takeover yet.`,
     )
     expect(frame).not.toContain('runtime-specific service error')
   })

@@ -16,10 +16,10 @@ import type { StageRecord } from './types'
  * §20.33's launcher.
  *
  * The tests here are about what happens *before* and *around* the pipeline: which checkout
- * a run is pinned to, which refusals the screen gets to render, and the fact that a run
+ * a run is pinned to, which refusals the caller gets to render, and the fact that a run
  * with nothing left to do comes back as a result rather than as a fresh pipeline. The
- * pipeline itself is `scan/run.test.ts`'s subject, and the screen's use of this launcher is
- * `cli/src/windbreak/__tests__/start-menu.test.tsx`'s.
+ * pipeline itself is `scan/run.test.ts`'s subject; the CLI reaches a scan through the
+ * WindBreak CLI, not through a screen of its own.
  */
 
 const tempDir = (prefix: string): string => fs.mkdtempSync(path.join(os.tmpdir(), prefix))

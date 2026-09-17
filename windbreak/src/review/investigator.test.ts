@@ -190,6 +190,100 @@ describe('the conversation ceiling in the pane (spec §20.29.6)', () => {
   })
 })
 
+describe('an account-level refusal, stated at the pane level (§18)', () => {
+  const CREDIT_REFUSAL =
+    'Out of credits. Please add credits at https://www.codebuff.com/usage.'
+
+  /** Refuses with `output.type === 'error'`, which is the path a depleted balance takes. */
+  const refusingClient = (message: string) =>
+    ({
+      run: async () => ({ output: { type: 'error', message } }),
+    }) as unknown as CodebuffClient
+
+  test('a refused turn sets the refusal, and it is read on later renders', async () => {
+    const db = seed(makeTarget())
+    const investigator = bridge(db, refusingClient(CREDIT_REFUSAL), 120)
+
+    // Nothing has been asked, so nothing has been refused: the pane must start silent
+    // rather than assuming a state it has no evidence for.
+    expect(investigator.refusal).toBeNull()
+
+    const turn = await ask(investigator)
+    expect(turn.failure?.kind).toBe('credits')
+    expect(investigator.refusal?.kind).toBe('credits')
+    expect(investigator.refusal?.detail).toContain('Out of credits')
+  })
+
+  test('the refusal stays until a turn answers, then clears', async () => {
+    // The balance is the account's, so the only evidence that it changed is a call that
+    // went through — which is why a top-up can be retried from this screen rather than
+    // only from a new one.
+    const db = seed(makeTarget())
+    let invocations = 0
+    const client = {
+      run: async () => {
+        invocations += 1
+        return invocations === 1
+          ? { output: { type: 'error', message: CREDIT_REFUSAL } }
+          : {
+              output: {
+                type: 'lastMessage',
+                value: [{ role: 'assistant', content: 'It is benign.' }],
+              },
+            }
+      },
+    } as unknown as CodebuffClient
+
+    const investigator = bridge(db, client, 120)
+
+    await ask(investigator)
+    expect(investigator.refusal?.kind).toBe('credits')
+
+    const answered = await ask(investigator)
+    expect(answered.ok).toBe(true)
+    expect(investigator.refusal).toBeNull()
+  })
+
+  test('a failure that is not about the account leaves the refusal standing', async () => {
+    // A refused balance does not stop being refused because a *different* call failed
+    // for a different reason, and a banner that vanished here would be the pane
+    // un-stating a fact that is still true.
+    const db = seed(makeTarget())
+    let invocations = 0
+    const client = {
+      run: async () => {
+        invocations += 1
+        return {
+          output: {
+            type: 'error',
+            message: invocations === 1 ? CREDIT_REFUSAL : 'rate limited',
+          },
+        }
+      },
+    } as unknown as CodebuffClient
+
+    const investigator = bridge(db, client, 120)
+
+    await ask(investigator)
+    await ask(investigator)
+    expect(investigator.refusal?.kind).toBe('credits')
+  })
+
+  test('a bridge with no client reports the reason it has no client, not a refusal', () => {
+    // §20.31's and the missing-credential case: no call was made, so there is nothing
+    // to classify — the reason the bridge was built unavailable is what the pane shows.
+    const db = seed(makeTarget())
+    const investigator = createReviewInvestigator({
+      db,
+      client: null,
+      clientUnavailableReason: 'no model credentials are available',
+    })
+
+    expect(investigator.refusal).toBeNull()
+    expect(investigator.unavailableReason).toContain('no model credentials are available')
+  })
+})
+
 describe('cancelling a turn from the pane', () => {
   test('the signal reaches the run, and the turn is recorded as cancelled', async () => {
     const db = seed(makeTarget())

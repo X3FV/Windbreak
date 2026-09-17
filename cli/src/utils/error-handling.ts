@@ -15,6 +15,7 @@ import type {
   FreebuffIpPrivacySignal,
 } from '@codebuff/common/types/freebuff-session'
 
+import { BRAND } from './brand'
 import { IS_FREEBUFF } from './constants'
 
 const defaultAppUrl = env.NEXT_PUBLIC_CODEBUFF_APP_URL || 'https://codebuff.com'
@@ -37,8 +38,39 @@ const extractErrorMessage = (error: unknown, fallback: string): string => {
 }
 
 /**
+ * The account-level refusal in words, for the case where no status code arrives.
+ *
+ * `statusCode === 402` is the standard shape, but the refusal that actually reaches
+ * the composer most often arrives on the agent-run `output.type === 'error'` path,
+ * which carries the provider's message and **no status code at all** (WindBreak spec
+ * §20.34, measured against the live backend). With no status to read, the words are
+ * what is left — and without them the refusal renders as an ordinary error, so the
+ * composer stays open and an account problem reads as a question that simply went
+ * unanswered.
+ *
+ * Deliberately narrower than `FREEBUFF_PROVIDER_USAGE_ERROR_PATTERN`, which also
+ * matches upstream *provider* quota wording ("Not Enough Credits", "Insufficient
+ * credits. Add more using …"). Those this client shows verbatim, and Freebuff
+ * reframes as its own provider cost — neither is a call to buy credits. What is
+ * matched here is the *account* refusal, the balance `OUT_OF_CREDITS_MESSAGE` sends
+ * the reader to top up.
+ */
+const ACCOUNT_CREDIT_REFUSAL_PATTERN =
+  /\b(?:out\s+of\s+credits?|(?:add|refill|top\s+up)\s+(?:more\s+)?credits?)\b/i
+
+/**
  * Check if an error indicates the user is out of credits.
- * Standardized on statusCode === 402 for payment required detection.
+ *
+ * Two shapes, because the backend produces both. `statusCode === 402` is the standard
+ * payment-required refusal and is read first, since a 402 is a refusal even when its
+ * body cannot be parsed at all. The second is the message-only form, matched against
+ * `ACCOUNT_CREDIT_REFUSAL_PATTERN` — see that constant for why the status alone is not
+ * enough, and for what the pattern deliberately leaves alone.
+ *
+ * Both shapes are decided here rather than by the caller because the caller is where a
+ * refusal has to become a *takeover*: `send-message` puts `outOfCredits` mode up on
+ * either, and a second detector that knew only the status would leave the message-only
+ * refusal behind as a line of text.
  */
 export const isOutOfCreditsError = (error: unknown): boolean => {
   if (
@@ -49,7 +81,10 @@ export const isOutOfCreditsError = (error: unknown): boolean => {
   ) {
     return true
   }
-  return false
+
+  const message =
+    getCliApiErrorDetails(error).message ?? extractErrorMessage(error, '')
+  return ACCOUNT_CREDIT_REFUSAL_PATTERN.test(message)
 }
 
 /**
@@ -203,7 +238,7 @@ export const getFreeModeUnavailableErrorMessage = (
   const details = getCliApiErrorDetails(error)
   const block = getCountryBlockFromFreeModeError(error)
   if (block?.countryBlockReason === 'anonymous_network') {
-    return `${IS_FREEBUFF ? 'Freebuff' : 'Free mode'} cannot be used from ${formatFreebuffHardBlockedPrivacySignals(
+    return `${IS_FREEBUFF ? BRAND.name : 'Free mode'} cannot be used from ${formatFreebuffHardBlockedPrivacySignals(
       block.ipPrivacySignals,
     )} traffic. Please disable it and try again.`
   }
@@ -242,11 +277,10 @@ export const getFreebuffGateErrorKind = (
 
 export const OUT_OF_CREDITS_MESSAGE = `Out of credits. Please add credits at ${defaultAppUrl}/usage`
 
-export const FREEBUFF_RATE_LIMIT_MESSAGE =
-  'Freebuff is temporarily busy. Please try again in a moment.'
+export const FREEBUFF_RATE_LIMIT_MESSAGE = `${BRAND.name} is temporarily busy. Please try again in a moment.`
 
 export const FREE_MODE_UNAVAILABLE_MESSAGE = IS_FREEBUFF
-  ? 'Freebuff is not available in your country.'
+  ? `${BRAND.name} is not available in your country.`
   : 'Free mode is not available in your country. You can use another mode to continue.'
 
 export const createErrorMessage = (

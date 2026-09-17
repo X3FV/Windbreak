@@ -8,6 +8,7 @@ import { Command } from 'commander'
 
 import { registerAuthCommand } from './commands/auth'
 import { registerBuildCommand } from './commands/build'
+import { registerConfirmCommand } from './commands/confirm'
 import { registerConfigCommand } from './commands/config'
 import { initCommandDefaults } from './commands/defaults'
 import { registerDbCommand } from './commands/db'
@@ -41,6 +42,7 @@ export const createProgram = (): Command => {
 
   registerAuthCommand(program)
   registerBuildCommand(program)
+  registerConfirmCommand(program)
   registerConfigCommand(program)
   registerDbCommand(program)
   registerEnginesCommand(program)

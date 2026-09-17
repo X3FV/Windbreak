@@ -2,6 +2,7 @@ import { createRequire } from 'module'
 
 import { Argument, Command } from 'commander'
 
+import { BRAND } from './utils/brand'
 import { IS_FREEBUFF, type AgentMode } from './utils/constants'
 import { getCliEnv } from './utils/env'
 
@@ -51,7 +52,7 @@ export function parseArgs({
     // Freebuff: simplified CLI - no prompt args, no agent override, no clear-logs
     program
       .name('freebuff')
-      .description('Freebuff - Free AI coding assistant')
+      .description(`${BRAND.name} - ${BRAND.tagline}`)
       .version(version, '-v, --version', 'Print the CLI version')
       .option(
         '--continue [conversation-id]',

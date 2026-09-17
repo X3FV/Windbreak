@@ -1,11 +1,12 @@
 /**
  * The adjudication screen's investigator bridge (spec §20.29.4, §20.29.5 slice 5).
  *
- * This module is the seam that lets a chat pane exist without the screen growing a model
- * client. `cli/src/windbreak/index.tsx` states the surface's design as *"it reads a local
- * state database and writes a decision back to it, and that is all it does"* — and that
- * stays true: the screen renders whatever this interface returns and constructs nothing.
- * The bridge is built in the entry point, where a client already legitimately exists.
+ * This module is the seam that lets a chat surface exist without growing a model client of
+ * its own: the surface renders whatever this interface returns and constructs nothing. It
+ * was consumed by the CLI's own adjudication screen, which has since been retired — the
+ * queue is worked from a chat session now (`cli/src/utils/windbreak-launch.ts`), so nothing
+ * in the CLI calls `ask` today, and this is kept as the interface a chat-driven consumer
+ * builds against rather than as one screen's private dependency.
  *
  * Three things it owns, none of which the screen should:
  *
@@ -19,6 +20,11 @@
  *    that cannot be opened are all normal — a database can be reviewed offline — and each
  *    is reported as a reason rather than as a pane that silently does nothing. §18 in the
  *    screen: "no investigator" must not read as "the investigator found nothing".
+ *
+ * It also owns the one piece of *session* state a turn can change: **whether the account
+ * is being refused**. A credit or auth refusal is not about the question that was asked,
+ * so it cannot live on the turn's line of the transcript — every later question would
+ * meet it again, and §18's rule is about that substitution in the pane's own chrome.
  *
  * §20.30 adds a fourth: **materialising the working copy**. It is built here, lazily,
  * the first time an engineer turn is asked for, because the alternative is paying for a
@@ -40,12 +46,14 @@ import { createWorkingCopy } from '../investigate/copy'
 import { recordInvestigatorTurn, recordWorkingCopy } from '../investigate/persist'
 import { createInvestigatorWorkspace } from '../investigate/workspace'
 import { modelVendor } from '../models'
+import { describeProviderFailure } from '../provider-failure'
 
 import type { Database } from 'bun:sqlite'
 import type { CodebuffClient } from '@codebuff/sdk'
 import type { InvestigatorAgentName } from '../investigate/agents'
 import type { ConversationBudget, ConversationBudgetState } from '../investigate/conversation'
 import type { ModelRoleConfig } from '../models'
+import type { ProviderFailure } from '../provider-failure'
 import type { InvestigatorMode } from '../investigate/persist'
 import type { ProposedSite, ProposalRejection } from '../investigate/propose'
 import type { CopyWriteRecord } from '../investigate/tools'
@@ -103,6 +111,14 @@ export interface ReviewInvestigatorTurn {
   injectionSignals: InjectionSignal[]
   /** Tool names in order, for the transcript's audit line. */
   toolsUsed: string[]
+  /**
+   * Set when the turn was refused for the account rather than for the question (§18).
+   *
+   * The pane draws it above its input rather than only into the transcript: a refusal
+   * that repeats identically for every question is a state of the conversation, and the
+   * transcript is where a reader looks for what one question produced.
+   */
+  failure: ProviderFailure | null
   /** The `investigator_turns` row, or null when the turn could not be recorded. */
   recordedTurnId: string | null
   /**
@@ -118,6 +134,19 @@ export interface ReviewInvestigatorTurn {
 export interface ReviewInvestigator {
   /** Null when the investigator is usable; the reason when it is not. */
   readonly unavailableReason: string | null
+  /**
+   * The account-level refusal the conversation last hit, or null (§18).
+   *
+   * Read on every render, and cleared only by a turn that came back with an answer:
+   * nothing else proves the balance was topped up or the credential replaced, and a
+   * banner that vanished because a *different* call failed would be the pane un-stating
+   * a fact that is still true.
+   *
+   * Not folded into `unavailableReason`: that one is decided before the conversation
+   * starts and cannot change while it is open, while this one is discovered by asking and
+   * can stop being true between two questions.
+   */
+  readonly refusal: ProviderFailure | null
   /** The mode a question runs in, given what is selected. */
   modeFor(candidateId: string | null): InvestigatorMode
   /**
@@ -285,6 +314,9 @@ export const createReviewInvestigator = (
   const copyWorkspaces = new Map<string, InvestigatorWorkspace | { error: string }>()
   const copyInfos = new Map<string, ReviewWorkingCopyInfo>()
   let lastCopyRunId: string | null = null
+
+  /** See `ReviewInvestigator.refusal`. Session state, and the only piece of it a turn writes. */
+  let refusal: ProviderFailure | null = null
 
   const unavailableReason = (() => {
     if (client === null) {
@@ -454,6 +486,10 @@ export const createReviewInvestigator = (
   return {
     unavailableReason,
 
+    get refusal() {
+      return refusal
+    },
+
     modeFor: (candidateId) => (candidateId === null ? 'hunt' : 'explain'),
 
     budget: () => conversation.state(),
@@ -469,6 +505,7 @@ export const createReviewInvestigator = (
         cancelled: false,
         answer: null,
         error: null,
+        failure: null,
         proposals: [],
         proposalRejections: [],
         injectionSignals: [],
@@ -540,6 +577,15 @@ export const createReviewInvestigator = (
           `${turn.proposals.length} proposal(s) in ${Date.now() - startedAt}ms`,
       )
 
+      // Sticky until a turn answers, rather than per turn: the refusal is about the
+      // account, so the only thing that disproves it is a call that went through.
+      if (turn.failure !== null) {
+        refusal = turn.failure
+        log(`[investigate] refused: ${describeProviderFailure(turn.failure)}`)
+      } else if (turn.ok) {
+        refusal = null
+      }
+
       // Charged whether or not the turn succeeded: a cancelled or failed turn still made
       // the calls it made, and a ceiling that only charged successful turns would be a
       // ceiling a researcher could spend a day under by asking badly. The count comes from
@@ -607,6 +653,9 @@ export const createReviewInvestigator = (
         toolsUsed: toolCalls.map((call) => call.tool),
         recordedTurnId,
         budget,
+        // The turn's own classification, not re-derived from the error string here: the
+        // status code the throw carried is only available where the throw was caught.
+        failure: turn.failure,
       }
     },
   }

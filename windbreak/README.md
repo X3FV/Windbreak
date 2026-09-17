@@ -171,6 +171,7 @@ than an alternate screen that looks like a hang. It is not a spinner. See §20.2
 | `windbreak toctou` | working — mines §4.4.3's atomicity rules, validates four check-to-use FSMs, and runs four CWE-364 signal-handler shapes over the program model |
 | `windbreak pipeline` | working — triages candidates, then cross-model-verifies them |
 | `windbreak review` | working — works the human adjudication queue |
+| `windbreak confirm` | working — generates a libFuzzer target for a finding, compiles and fuzzes it inside the sandbox, and records the reproduction as `dynamically-confirmed` (spec §20.35) |
 | `windbreak report` | working — SARIF, tiered writeups, harnesses, disclosure ledger |
 | `windbreak library add` / `list` / `show` / `retire` | working — the cross-target pattern library |
 | `windbreak library replay` | working — confirmed-only variant hunting across targets |
@@ -564,15 +565,20 @@ bun run windbreak report --set-status submitted --finding <finding-id> --channel
 Four behaviours worth knowing:
 
 - **The evidence tier is derived, never guessed, and never omitted.** A confirmed
-candidate is `statically-verified`, an unresolved disagreement is `contested`,
-and anything that has not survived verification is excluded *with a reason*
-rather than dropped silently. The writeup renderer refuses to emit a claim whose
-tier is unstated (spec §2.1.5).
-- **Harnesses are generated and never run (D21).** Each one states its expected
+candidate is `statically-verified`, a candidate WindBreak reproduced inside the
+sandbox is `dynamically-confirmed` (stronger than a model's argument, weaker than
+a reproduction you ran yourself), an unresolved disagreement is `contested`, and
+anything that has not survived verification is excluded *with a reason* rather than
+dropped silently. A run that reproduces nothing changes nothing — silence is not
+disproof. The writeup renderer refuses to emit a claim whose tier is unstated
+(spec §2.1.5).
+- **Harnesses are generated and never run.** Each one states its expected
 observable failure and leaves TODO markers for the parts only you can supply. The
 emitted skeleton is verified to be valid C — the test suite compiles every shape
 the generator can emit — but it declares its own prototype, so it does not link
-until you add the real header and signature.
+until you add the real header and signature. To have WindBreak attempt a
+reproduction itself, `windbreak confirm` generates and fuzzes a target *of its own*
+inside the sandbox, with the checkout bound read-only (spec §20.35).
 - **Artifacts are private.** The output directory is `0700` and every file
 `0600`, because writeups carry live exploit detail. Nothing is uploaded;
 submission is manual and tracked in the ledger.

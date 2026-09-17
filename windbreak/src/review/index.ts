@@ -64,6 +64,20 @@ export type {
  * screen takes a `ReviewInvestigator` instead of a client.
  */
 export type { InvestigatorMode } from '../investigate/persist'
+/**
+ * §18's account-level refusal, named here because it is part of the shape this boundary
+ * hands a caller — `ReviewInvestigator.refusal` is one of these — so it has to be nameable
+ * without reaching into `provider-failure`.
+ *
+ * The two short-name helpers used to be re-exported as *values* beside it, for the
+ * adjudication pane: that surface put the refusal in its own words, and the copy saying
+ * what the operator does about it belongs where the classification does rather than being
+ * restated in the CLI, where it would drift. The pane is gone (§20.33 retired the screen
+ * for a chat session) and nothing else asked for them, so they are no longer exported
+ * here — a caller that needs them reads `provider-failure` directly, which is the one
+ * module that decides what a refusal is.
+ */
+export type { ProviderFailure, ProviderFailureKind } from '../provider-failure'
 export type { ProposedSite, ProposalRejection } from '../investigate/propose'
 export type { InjectionSignal } from '../trust/injection'
 export type { ConversationBudgetState } from '../investigate/conversation'

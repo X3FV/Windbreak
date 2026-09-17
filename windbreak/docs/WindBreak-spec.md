@@ -37,7 +37,7 @@ Every locked-in decision from the interview, with the reasoning, so later reader
 | D18 | `scope_validator` | **Dropped completely** | Removed from the design; target legality is the researcher's responsibility, handled in process docs, not the pipeline |
 | D19 | Model assignment | **Named defaults, fully configurable, shared with eval harness** | Defaults documented; every role swappable per run (§8) |
 | D20 | Network policy | **Sandbox has no network; only the host makes OSV + LLM calls** | §6.3 |
-| D21 | Dynamic confirmation | **Manual harness, spec-assisted** | WindBreak emits a PoC/harness + instructions for the researcher to run; no automated fuzzing infra (§4.7) |
+| D21 | Dynamic confirmation | **Manual harness, spec-assisted** — *superseded: §20.35 adds automated, sandboxed confirmation* | WindBreak emits a PoC/harness + instructions for the researcher to run **and** compiles/fuzzes a generated target of its own, recording the reproduction; races and non-crash observables stay manual (§4.7) |
 | D22 | Eval fixtures | **Private, on-demand fetch, list stored in-repo** | Versioned list of pre-fix commits; snapshots fetched at run time (§11.2) |
 | D23 | Report contents | **Minimal: narrative writeup + SARIF** | No extra metadata at MVP |
 | D24 | Disclosure at MVP | **Local writeup only** | No platform submission; disclosure-tracker is a local ledger (§13) |
@@ -73,7 +73,7 @@ Non-goals for MVP are enumerated in §2.3.
 2. **Recall:** ≥ **20%** of the known vulnerabilities in the private seeded snapshot set (§11) are surfaced at the *candidate* stage or later. D11 — precision is explicitly negotiable at this bar.
 3. **Determinism:** re-running the same target with the same config reproduces identical stage outputs from cache (§8.4).
 4. **Output contract:** every surviving candidate produces a valid SARIF 2.1.0 file and a narrative writeup conforming to §13.2.
-5. **No unreproduced claims:** the writeup marks each finding's evidence tier (`statically-verified`, `human-reproduced`, `contested`) — WindBreak never asserts a finding is exploitable without the tier being explicit.
+5. **No unreproduced claims:** the writeup marks each finding's evidence tier (`statically-verified`, `dynamically-confirmed`, `human-reproduced`, `contested`) — WindBreak never asserts a finding is exploitable without the tier being explicit.
 
 ### 2.2 North star
 
@@ -81,7 +81,7 @@ At least one **maintainer- or vendor-accepted** real disclosure that originated 
 
 ### 2.3 Non-goals (explicitly out of MVP)
 
-- Automated PoC/fuzzing execution (D21 — manual harness only).
+- Automated PoC/fuzzing execution — *no longer a non-goal: §20.35 builds it and supersedes D21. What remains out of scope is exploit generation, and any execution outside the sandbox; the harness a researcher runs by hand stays a manual path (§4.7).*
 - Platform submission to HackerOne/Bugcrowd/ZDI/email (D24).
 - Multi-target concurrent scans.
 - A web UI of any kind.
@@ -149,7 +149,7 @@ The plan's §3 evidence says post-verification false-positive rates can reach si
 3. **Static detection core** — baseline engines + patch-mined discovery (MVP) + TOCTOU/race module + synthesized checkers (post-MVP). (§4.3–4.5) *The TOCTOU/race module is no longer deferred: §4.4.3 is realized (§20.22), including the alias analysis this step's own listing implies. Synthesized checkers remain post-MVP, as D5 decides.*
 4. **Triage** — cheap-tier model, first-cut noise filter. (§4.6)
 5. **Cross-model verification** — Proposer vs Refuter, different models/providers; disagreement goes to the human queue. (§5)
-6. **Manual harness generation** — for findings worth it, emit a harness + instructions; **not executed by WindBreak**. (§4.7)
+6. **Harness generation** — for findings worth it, emit a harness + instructions; **not executed by WindBreak**. A separate, optional stage can then confirm a finding by fuzzing a target of its own inside the sandbox (§20.35); the harness is still the human's path. (§4.7)
 7. **Reporting** — SARIF + minimal writeup, written locally. (§13)
 8. **Pattern library update** — confirmed checkers/patterns persisted for future targets. (§10)
 
@@ -284,7 +284,7 @@ For findings that survive §5 at `likely-real`, WindBreak emits:
 - expected observable failure (crash signature, assertion, timing window),
 - explicit instructions for the researcher to run it **outside** WindBreak.
 
-**WindBreak does not execute it.** Per D21, no automated fuzzing infrastructure lands yet; the module's interface is specified (§12.4) so that AFL++/libFuzzer automation can slot in later without redesign.
+**WindBreak does not execute it.** The module's interface is specified (§12.4) so that AFL++/libFuzzer automation can slot in without redesign — *which it now has: `windbreak confirm` (§20.35) generates a fuzz target of its own, compiles and runs it inside the sandbox, and records whether the defect manifested. That is a different artifact from the harness above, which is still written and never run, and the reporting worker stays a pure renderer.*
 
 ### 4.8 Variant hunting
 
@@ -397,6 +397,7 @@ windbreak scan --target <path>  # full pipeline, respects budget (§20.13)
 windbreak resume --run <id> --target <path>   # continue after overrun/abort
 windbreak review                # human adjudication queue (batch: list, --decide)
 freebuff windbreak review       # the same queue as an interactive screen (D32, §20.14)
+windbreak confirm --target <path>  # fuzz a finding inside the sandbox and record the reproduction (§20.35)
 windbreak report <run-id>       # regenerate SARIF + writeups from cache
 windbreak fetch <fixture-set>   # materialize the fixtures' snapshots at their pinned commits (D22, §20.25)
 windbreak eval <fixture-set>    # run the eval harness, emit metrics
@@ -483,7 +484,7 @@ When a stage exceeds its quota, the governor **prompts the user** interactively:
 
 ## 10. Pattern library (D15)
 
-Persisted patterns/checkers, saved **only** when they have produced a `human-reproduced` true positive. Replay rules:
+Persisted patterns/checkers, saved **only** when they have produced a `human-reproduced` true positive. *The `dynamically-confirmed` tier added in §20.35 deliberately does not satisfy this gate — automation is not a person signing their name.* Replay rules:
 
 - A stored checker is replayed against a new target **only if** it is in the confirmed state.
 - Before replay, it is re-validated against the patch it was mined from (catch the pre-image, stay silent on the post-image). A drifted checker is skipped, not tuned.
@@ -608,7 +609,7 @@ interface HarnessResult {
   researcherInstructions: string;
 }
 ```
-Explicit non-behavior: this worker **must not** execute the harness (D21). A future automated fuzzer slots in behind the same interface.
+Explicit non-behavior: this worker **must not** execute the harness — and it still does not. The automated fuzzer that now exists behind this interface (§20.35) is a stage of its own (`confirm/`) that generates and runs its *own* target, not this harness. The worker stays a pure renderer; the stage that spawns processes is separate, which is what this seam was for.
 
 ### 12.5 `disclosure-tracker` (local ledger only, D24)
 
@@ -636,7 +637,7 @@ SARIF 2.1.0, one run per target, one result per surviving finding, `ruleId` = ca
 ```markdown
 # <title>
 **Target:** <repo> @ <sha>
-**Class:** <CWE> · **Evidence tier:** statically-verified | human-reproduced | contested
+**Class:** <CWE> · **Evidence tier:** statically-verified | dynamically-confirmed | human-reproduced | contested
 **Hypothesis:** <what is wrong and why>
 **Evidence:** <code, call path, and which stage/pattern produced it>
 **Reproduction steps:** <manual harness instructions, if generated>
@@ -767,7 +768,9 @@ interface Finding {
   modelsUsed: { role: string; modelId: string; provider: string }[];
 }
 
-type EvidenceTier = "statically-verified" | "human-reproduced" | "contested";
+type EvidenceTier =
+  | "statically-verified" | "dynamically-confirmed"
+  | "human-reproduced" | "contested";
 ```
 
 ---
@@ -810,7 +813,7 @@ v0.1 §10 put precision machinery first. The MVP bar is recall (D11), so the ord
 
 *(Step 9 is realized in §20.12.)*
 | 10 | Checker synthesis (Phase B) | Highest ceiling, least urgent; gated on Phase A's crossover (§4.4.2) | Synthesized checker validates against its origin patch |
-| 11 | Automated dynamic confirmation | Deliberately last (D21, D13) | Out of MVP scope |
+| 11 | Automated dynamic confirmation | Deliberately last (D21, D13) — *built since; §20.35 supersedes D21* | A seeded overflow fixture is reproduced inside the sandbox, recorded, and marked `dynamically-confirmed` |
 
 ---
 
@@ -852,7 +855,7 @@ This file is authoritative. `Plan.md` should be retired or marked superseded; it
 1. **Recall is now a first-class concern**, not just precision — phased discovery (§4.4) with an MVP recall bar (§2.1.2).
 2. **Untrusted-content trust boundary added** (§5) — cross-model gating plus human adjudication on disagreement.
 3. **Sandboxing covers ingestion/build**, not just dynamic confirmation (§6.4); `scope_validator` is removed entirely (D18).
-4. **Dynamic confirmation is manual** at MVP (D21) — v0.1's largest infrastructure lift is out of scope, with its interface preserved.
+4. **Dynamic confirmation was manual** at MVP (D21) — v0.1's largest infrastructure lift was deferred with its interface preserved, and has since been *built against that interface*: §20.35 supersedes D21.
 5. **Evaluation gets repo-level ground truth** (§11) rather than resting on a function-level benchmark.
 6. **Budget governor now prompts the human** instead of silently overrunning (D13).
 7. **Citation errors fixed** (§15), with two still-unresolved references flagged.
@@ -1108,7 +1111,7 @@ Two further integration fixes: setting `HOME` to scratch moved Python's user-sit
 
 **The evidence tier is derived, never guessed, and never omitted (§2.1.5).** The mapping is explicit and recorded in `findings.ts`: a `confirmed` candidate is `statically-verified`; `escalated` with a human `real` is `statically-verified`; `escalated` and still pending is `contested`; and any other state is *excluded with a reason* — never dropped silently, because a silent drop is how a real finding disappears. `escalated` is reported rather than withheld because the tier exists for exactly that state. A reproduction the researcher asserts (`report --reproduced <candidateId…>`) outranks the derived tier and yields `human-reproduced`. `renderWriteup` re-validates the tier at runtime as well as in the type, so a bad value from the database still cannot produce an untiered claim.
 
-**Harnesses are written and never run (D21).** A harness has an expected observable failure and TODO markers for the parts only a human can supply (the right header, the input that reaches the flagged line). The reproduction steps tell the researcher how to *say* whether it reproduced, and that a failed reproduction is itself evidence — it is what feeds the negative examples in the pattern library.
+**Harnesses are written and never run.** (The automated confirmation added later, §20.35, runs a fuzz target of its own — not this artifact.) A harness has an expected observable failure and TODO markers for the parts only a human can supply (the right header, the input that reaches the flagged line). The reproduction steps tell the researcher how to *say* whether it reproduced, and that a failed reproduction is itself evidence — it is what feeds the negative examples in the pattern library.
 
 **Artifacts are local-only and private.** The output directory is `0700` and every file `0600`, because writeups carry live exploit detail (§17 item 8's unresolved storage question is at least not made worse). Nothing is uploaded; submission is manual through the ledger.
 
@@ -4006,4 +4009,445 @@ WindBreak **1221 pass**, the CLI windbreak suite **269 pass** (+48), both typech
 
 ---
 
-*This document is the plan, and the implementation has caught up to it. It was written to be worked through before implementation; where a section's prose and §20 disagree, §20 describes the code that exists. Claims that later work overtook are marked in place (`*built since; see §X*`) rather than deleted, so a reader can tell a superseded statement from an oversight. The scaffold (§20.4), the sandbox + build step (§20.6), recon (§20.7), OSV correlation (§20.8), the baseline engines stage (§20.9), the candidate pipeline (§20.10), reporting (§20.11), the pattern library (§20.12), the `scan` orchestrator (§20.13), the adjudication screen (§20.14) — with its mouse and scrolling behaviour (§20.15) and its layout and palette (§20.16) — are in place and verified, as is D16's deferral (§20.17) with the request/services handoff seam it required (§20.20), the `eval` scoring core (§20.18), Tier 1's function-level corpus (§20.19), §4.4.1's patch-mined discovery (§20.21) — the MVP feature D5 named and the only §3.2 capability that had been missing — §4.4.3's check-to-use / race module (§20.22), the flagship capability, with the one interpretation §4.4.3 left open recorded against its own claim rather than papered over, and §4.4.3's CWE-364 signal-handler machine (§20.23) — the one race family those four FSMs cannot express, and the one whose shapes MITRE enumerates itself. §6's C/C++ scope was then widened for the program model alone (§20.24), which found a recall hole in the C++ index that had been there since §20.7 and pinned the C-shaped sweeps to the languages whose tables they actually are, so that a Python repository reports how much of itself went unswept instead of looking clean — that number now printed as its own line beside the candidate counts rather than only as a warning (§20.24.5). §20.24.7 then makes the next language affordable: the single `DETECTOR_LANGUAGES` constant became a per-detector capability matrix, so a language is swept by the detectors whose tables it has — and one only some of them cover is reported as *partly swept* with the missing detectors named, rather than rounded to swept or unswept. The shipped matrix is still C and C++ everywhere, so detection is unchanged; what changed is that adding a language is now one entry on one list, and the report says which detectors skipped a language rather than only how many callables went unread. D22's corpus is now whole (§20.25): the private list shipped with §20.18 and `fetch` materializes its snapshots at the pinned revisions, blobless so that the two miners still have a history to mine. The model path has then been driven **live** for the first time (§20.26) — a complete scan, `exit 0`, 2 triaged, 1 cross-model-verified, 1 CWE-120 finding written — which is how three defects in `pipeline/invoke.ts` were found: a tool list that removed the only channel `structured_output` reads, an instruction telling the model not to use the tool the runtime requires, and a step ceiling that made the runtime's own retry unreachable. All three were invisible to the fake-invoker suite by construction. That run also left a requirement no section wanted to own — eight exported environment values before a model call may even be attempted — and §20.27 removes it, with the note that the first attempt failed because the fix imported the very module whose snapshot it had to precede. §20.28 then revisits §20.14.1's first honesty rule — a missing database used to be refused with a non-zero code, and now opens the screen with the path marked *not found*, because the screen has room to name the state and the refusal did not. §20.29 is the one section written as a **plan rather than a record** — an investigator that can read and execute in the target, inside the adjudication screen — and it is marked as such where it sits, with the two invariants it touches named rather than discovered later; **its first four slices are now built** (§20.29.7): a mediated workspace that confines every read to the target and runs every command in the sandbox, five owned custom tools with §5.1's neutralization extracted rather than reimplemented, an agent whose prose output cannot be read as a verdict, a recorded transcript in a table of its own (`investigator_turns`, schema v6) that `runVerification` does not query, and a `propose_candidate` channel whose candidates enter §4.5 at `state: 'new'` stamped `investigator` — with the "not an engine match" claim §20.29.4 requires actually made in the prompt's provenance line, the writeup, the SARIF result, and a `modelProposed` funnel column. The role needed a distinction rather than a union member: the investigator is configurable and recordable while staying out of `ModelRole`, which is what the verdict path accepts, and that containment is asserted at compile time. Two live runs found three defects the fake-client suite could not — a prompt that told the model to report in prose instead of proposing, a turn that reported `ok: true` with no answer at all, and a step ceiling measured too low. **Slice 5 puts it in the screen** — `c` in the adjudication screen opens a chat in the decision card's slot (*superseded: §20.32 moves it to the body, with the queue kept as a rail*), `/hunt` for the target and a plain question for the selected row, with every turn recorded and the screen still constructing no client of its own — so **D32's row is now marked false at the point of the claim**, exactly as §20.29.3 said it would be. **Slice 6 closes the section** — a per-conversation ceiling in model calls, counted from the provider's own usage reports with a floor of one per turn, one budget shared by a hunt and an explain, a `windbreak.config` row the screen actually reads, and `esc` stopping a turn in flight and reporting it as `cancelled` rather than `failed` — which is the last item §20.29.6 left open and the thing that makes the pane safe to leave open. §20.29.8 then gives the cold start a face: the renderer is built first, a small loading view names what is being waited for and the database path, and only then is the bridge constructed — with the two gates that make a frame actually reach the terminal (a `flushSync` commit and a bounded `renderer.idle()` draw) found by running it, and asserted on captured frames rather than on call order. §20.30 then puts the code beside the queue: `f` lists the target's file inventory — what recon **indexed**, not a directory walk, so the files on screen are the same set the findings are about — in the detail pane's slot, with the target and pinned commit in its header, the dropped rows printed when the listing is capped, and its three empty states (no target, an empty inventory, a populated tree) said three different ways rather than collapsed into one empty pane. Its second slice is where the editing lands: a writable *copy* of the target that models may patch and rebuild, reached by `tab` from the same pane, while the target itself stays a read-only bind — **the artifact a finding cites has to remain the artifact a reader can re-examine**, and that is the one property security research can least afford to lose. The copy, the three write tools, the two agents' separate tool lists, and schema v7's `working_copies` are built and verified (§20.30.1 records what is still open). §20.31 then answers the question that entry left open — `windbreak` in a checkout nothing has scanned now opens on **that repository**, because the screen resolves the git root (falling back to the working directory) and the pane falls back to a filesystem walk when the database has no target to show; the walk reuses recon's own `collectInventory`, so both sources share one answer to what a source file is, and it is **labelled as unscanned** in a warned header line rather than passed off as the inventory the findings are about, which is the rule §20.30 chose the inventory for in the first place. The models read the same directory through a fallback root that a run's own target always overrides, and the scratch goes to the system temp dir because an unscanned checkout has no `.windbreak` and writing one would be a change to a tree the screen is only reading. What such a checkout cannot do is now said outright rather than discovered: there is no run, so turns are not recorded, candidates cannot be created, and the engineer is refused — writing being recorded is what §20.30's engineer *is*, and attribution needs a run. §20.32 then follows where §20.31's fallback left the screen usable: `c` gives the chat the body instead of a card-sized slot, the queue stays as a narrow rail that is dropped rather than squeeze the prose, and — the part that was a real defect rather than a preference — the transcript **wraps** where it used to truncate, so a model's paragraph is read instead of arriving as its first clause and an ellipsis. Wrapping happens where the lines are built so the pane's row-based scroll counts the rows that exist, and the hint row is the chat's own because the browse keys are inert while the input owns the letters. §20.33 then makes the command a **passage rather than a destination**: a bare `windbreak` opens a start menu — run a scan, browse the files, resume a previous run — instead of §5.3's queue, with the repository and the database named above the rows before anything is chosen. The scan runs **in this process** (the interactive budget decider reads stdin, which the renderer owns, so `yes: true` is correctness rather than a default), streams the run's own log, and reads its stage from the run's own announcements; a continuation takes its checkout from the run rather than the working directory, exactly as the batch `resume` does. The queue becomes a screen *under* the menu reached through a run or the whole-database row, `--run` still skips the menu so the batch contract is unchanged, and a finished scan keeps its summary — a deliberate departure from the interview's "land on the dashboard", because the summary is a run's only record of its warnings and of whether `0 candidates` means clean or unswept. **§7.3's command list is implemented**, `fetch` included: `prepare` (§6.3) and `eval` (§11, both tiers) were the last two placeholders, and `fetch` is the one command added since that list was first written. §17's remaining open items, §20.5, and the open items in §20.6.3–20.6.4, §20.7.2–20.7.5, §20.8.2, §20.9.3, §20.10.3, §20.11.3, §20.12.6, §20.13.6, §20.14.5, §20.15.4, §20.16.6, §20.17.4, §20.18.9, §20.19.8, §20.20.6, §20.21.6, §20.22.7, §20.23.6, §20.24.6, §20.25.6, §20.26.6, §20.27.7, §20.28.5, §20.30.1, §20.31.1, §20.32.1, and §20.33.7 are the live unknowns — §20.29.6's last two went with slice 6, so that section is no longer on the list. §20.24 is the one section that is deliberately *half* of what was asked: indexing eleven languages is finished and verified, and detecting in them is the per-language work §20.24.6 enumerates. §20.22.1 is the one item in that list that is a question about *scope* rather than a known limit: §4.4.3 says "four known patterns" and never names them. §20.23 is the counter-example that shows the difference — CWE-364 names its own behaviours, so that section's shapes carry no such caveat, and what it records instead are limits of the analysis rather than questions about what to build.*
+### 20.34 An account-level refusal is stated once, where the counts are
+
+**What was wrong.** A refused balance or a rejected credential arrived as an ordinary failure, once
+per call. In a chat surface that is one transcript line — `! investigator: Out of credits. Please add
+credits at https://www.codebuff.com/usage.` — sitting under a question, where it reads as *that
+question* not being answerable. In a scan it is worse by an order of magnitude: triage fails once per
+candidate, so the run ends with a hundred `warning:` lines that are each true, and the one fact they
+share — that they have the same cause and it is the account — appears in none of them. The `partial`
+status and the hour of the day then point at the target, which is where the problem is not.
+
+**What the two failures actually say**, taken live rather than guessed at (a depleted account and a
+deliberately bogus token, through the same `client.run` a chat surface uses):
+
+| path | what arrives |
+|---|---|
+| depleted balance | `output.type: 'error'`, message `Out of credits. Please add credits at https://www.codebuff.com/usage.` — no status code on this path |
+| rejected credential | **thrown**, message `Authentication failed`, carrying `statusCode: 401` — a message that names nothing about the account |
+
+That asymmetry is what decides the design: the message alone cannot classify the second one, and the
+status alone is not available on the first.
+
+#### 20.34.1 `provider-failure.ts`: two kinds, and one piece of copy
+
+`classifyProviderFailure` reads a message and an optional status and returns
+`{ kind: 'credits' | 'auth', detail }`, or null. Two kinds rather than one because they have different
+fixes — a balance is topped up, a credential is replaced — and a single "model call failed" sends a
+reader to the wrong place for half of them. The status is read where a thrown error is available
+(`statusCode`, then `status`, the pair `@codebuff/sdk`'s own `getErrorStatusCode` checks); that helper
+is **reimplemented rather than imported** for the reason `auth.ts` re-states its constants: importing
+it would load the SDK at module scope, which the CLI's non-model commands must not pay for.
+
+**The classification is textual, and that is a limitation rather than a design.** The
+`output.type === 'error'` path carries no status, so a pattern is all that is left for the case that
+actually happens. The patterns are pinned to the two live messages above and to the `credentials`
+wording `client.ts` already ships, and two negative tests keep them from growing teeth they should not
+have: an ordinary failure (a missing `set_output`, a schema mismatch, a run out of steps) must classify
+as nothing, and the word *credentials* on its own must not match — a candidate's evidence is text, and
+a warning quotes it.
+
+`describeProviderFailure` is the sentence a surface shows, and it is the one the two batch commands
+read, so they cannot drift into advising different things about the same refusal. `providerFailureFix`
+is its one-clause fix and `providerFailureLabel` the two or three words a single row can spend; with
+the adjudication pane retired (§20.33) those two have no caller outside this module, and the value
+re-exports that existed for the pane are gone (§20.34.2).
+
+#### 20.34.2 The turn carries it, the bridge keeps it, the composer states it
+
+An `InvestigatorTurn` now reports `failure`, classified from the error it is already reporting — so an
+error that reads as a refusal and is not labelled as one is not a state the code can produce. The
+status is passed in from the throw site rather than carried on the type: it is evidence for the
+classification, not a fact about the turn. A cancelled turn is deliberately *not* a refusal, which
+keeps §20.29.5's "you stopped it" from collapsing into a third thing.
+
+The bridge (`review/investigator.ts`) holds the one piece of session state a turn can write:
+`refusal`. It is set by a refused turn and cleared **only by a turn that came back with an answer**,
+because nothing else proves the balance changed. A different failure leaves it standing — a banner
+that vanished because an unrelated call broke would be a surface un-stating a fact that is still true.
+It is not folded into `unavailableReason`: that one is decided before the conversation starts and
+cannot change while it is open, while this one is discovered by asking.
+
+**It has no renderer, and this section says so rather than leaving it implied.** The field was built
+for §20.29's chat pane, which drew it as a wrapped block above its input; §20.33 retired that screen
+for a chat session, so the pane is gone and the bridge's `refusal` is retained state that nothing
+reads — the value re-export the pane used came off `review`'s boundary in the same cleanup. Keeping
+the state is deliberate (it is the classification's session-level answer, and the next surface that
+asks for it should not have to rediscover it), but a reader should not be told a surface draws it when
+none does.
+
+**Where a refusal is stated is the composer, and it is the chat app's own machinery.** The surface
+that owns it is the error path (`cli/src/utils/error-handling.ts` → `send-message.ts`), which already
+had an out-of-credits *takeover*: `outOfCredits` is an input mode and `OutOfCreditsBanner` replaces the
+composer entirely, so `Enter` opens the credit page. What §20.34's live runs exposed is that the
+takeover was reachable only through `statusCode === 402` — and a depleted balance arrives on the
+agent-run `output.type === 'error'` path with **no status at all**. Read as a status, that refusal fell
+through to the ordinary error renderer: one line of text, the composer still open, and an account
+problem indistinguishable from a question that went unanswered. `isOutOfCreditsError` therefore reads
+the message too, against an account-credit pattern kept deliberately narrower than
+`FREEBUFF_PROVIDER_USAGE_ERROR_PATTERN` — that constant also matches upstream *provider* quota wording
+("Not Enough Credits", "Insufficient credits. Add more using …"), which this client shows verbatim and
+Freebuff reframes as its own cost, and neither is a call to buy credits.
+
+The two builds then differ, and both differences are the point rather than an oversight. In the
+Freebuff binary (`FREEBUFF_MODE=true`) the provider-usage branch is consulted first and owns every
+credits-shaped refusal, so the reader is told Freebuff ran out of provider usage *on us* and the
+composer stays usable — there is no balance for a Freebuff user to top up, which is why
+`OutOfCreditsBanner` returns null in that build. A standalone build has no provider to absorb the cost,
+so the refusal is the reader's and the takeover is correct.
+
+**One limit here is a boundary rather than a gap.** A refusal met by WindBreak's own calls is not this
+app's error to render: `freebuff windbreak` runs the WindBreak CLI as a subprocess, so its refusal
+reaches the composer as tool output rather than as a run error and the takeover cannot fire on it. That
+surface is WindBreak's own — the `BLOCKED: …` line §20.34.3 puts above the counts — and wiring a
+subprocess refusal back into the takeover is a seam this section does not claim.
+
+#### 20.34.3 The batch surfaces say it once, before the counts
+
+`ScanResult` gains `providerFailure`, classified in the orchestrator from the evidence the run already
+collected — the per-call warnings, plus the reasons attached to stages that never ran. Reading them is
+a search rather than a second tally, so the classification cannot drift from what it is about; and the
+per-candidate warnings are **left in place**, because each one is a candidate left unexamined and a
+summary that dropped them would be claiming a net the run did not have. What changes is that the
+summary says the shared cause once, before the stage table: `BLOCKED: …` in the console summary and
+the same sentence in `windbreak pipeline` (whose `--json` payload now carries the classification too).
+The scan screen that used to put `blocked: …` on its second line went with §20.33's screen.
+
+A stage skipped because the environment has no credentials at all is classified with the same
+machinery: it is not a model failure, but it is the same decision for a reader — nothing that needed a
+model happened, and the fix is theirs.
+
+#### 20.34.4 Verified
+
+`provider-failure.test.ts` classifies both live messages plus the SDK's wrapped form, reads both status
+conventions, refuses to match four ordinary failures and a bare *credentials*, and bounds a multi-line
+provider body. The agent suite proves a billed turn, a 401 that was thrown, an ordinary failure, and a
+cancelled turn respectively classify as `credits`, `auth`, null, and null — the last one being the
+distinction §20.29.5 depends on. The bridge suite proves the refusal appears on the turn it was found
+on, survives a later question, clears on an answer, **stays** across an unrelated failure, and is null
+when the bridge was built without a client. The frame-level assertions this section used to record were
+the chat pane's and went with it; what stands in their place is the composer's own detection, proved in
+the CLI's `error-handling` suite: the live no-status refusal classifies as out-of-credits whether it
+arrives as an object, a plain string, or a wrapped error, a message inside a response body is found
+too, and upstream provider quota wording plus three ordinary failures — including `Payment required`,
+the bare status text — are left alone. On the orchestration: a refused account leaves the per-candidate
+warnings intact with `providerFailure.kind === 'credits'` and the run still `partial`, a credential-less
+run classifies as `auth`, a run nothing refused carries null, and the scan summary puts the statement
+above the stage table without dropping the warnings.
+
+WindBreak **1350 pass** (the suite's long-standing `pre-init/client-env` failure is unchanged and
+untouched by this section), the CLI windbreak suite **290 pass** (+21), both typechecks clean — and the
+CLI's `error-handling` suite at **73 pass**, the five added here among them.
+
+#### 20.34.5 Open items
+
+- **A refused balance still spends the whole stage.** Every remaining candidate is attempted and
+  refused, one bounded call each, because nothing in §3.2's chain reads this classification. Stopping a
+  stage early on an account-level refusal is the obvious next step and is a *policy* change — the
+  difference between "this candidate was not checked" and "no candidate was checked" has to be stated
+  where the stage's counts are — so it is recorded rather than taken here.
+- **Nothing checks the balance before the first call.** There is no pre-flight, so the discovery that
+  the account is empty always costs at least one refused call. That is cheap and honest for a chat
+  turn and merely cheap for a scan; a balance endpoint would have to be a network call this tool does
+  not otherwise make.
+- **The classification only knows the refusals it has seen.** A provider that words its 402 differently
+  — or a second backend — is an ordinary failure until someone runs into it, and the copy that says
+  *why* a windbreak call is metered while Freebuff itself is free is a fact about today's allowlist
+  (`common/src/constants/free-agents.ts`) stated in a comment rather than asserted against it.
+- **The bridge's `refusal` has no consumer.** It is set, held and cleared correctly and nothing reads
+  it: the pane it was built for is retired (§20.33) and the composer's takeover reads the run's own
+  error instead. It is kept rather than deleted so the next surface that wants a session-scoped answer
+  does not rediscover it, but "held for a surface that does not exist yet" is a limit to state rather
+  than a capability to claim.
+- **A WindBreak run's refusal never reaches the takeover.** `freebuff windbreak` shells out to the
+  WindBreak CLI, so an account refusal there arrives as tool output rather than as a run error and the
+  composer stays in its ordinary mode. WindBreak states it itself (`BLOCKED: …`), which is the honest
+  surface for it, but a researcher who wants the *takeover* for a refused scan does not get one.
+- **The classification only covers the wordings it has met.** The account pattern is narrower than the
+  provider one on purpose, so a backend that words a depleted balance neither way — no "out of
+  credits" and no "add credits" — is an ordinary failure until someone runs into it. That is the same
+  limitation §20.34.1 records for WindBreak's own classifier, in the one other place that decides what
+  a refusal is.
+
+### 20.35 Automated dynamic confirmation (§4.7, §12.4, §16 step 11 — realized, superseding D21)
+
+D21 is the one decision this section reverses, and the reversal is deliberate rather than a drift
+that got written up afterwards. "Manual harness, spec-assisted" kept v0.1 out of the fuzzing
+business: §2.3 listed *automated PoC/fuzzing execution* as a non-goal, §16 put step 11 last and
+marked it **out of MVP scope**, and §12.4's non-behavior was explicit — *this worker must not
+execute the harness*. What D21 bought was **scope**, not caution: the plan's largest
+infrastructure lift was deferred, and §12.4 kept the seam so a backend could land "without
+redesign".
+
+The seam held, and that is why this is a small section rather than a rewrite. `generateHarness`
+already emitted the three things a run needs — build flags, an invocation, and an expected
+observable failure — and this section fills each of them in and executes the result. What is new
+is a stage (`confirm/`), a table, a command and a tier. What is **not** new is the evidence
+vocabulary, the sandbox, the trust boundary, or the rule that nothing here asserts exploitability.
+
+**§12.4's non-behavior still holds, and the distinction is the design.** `report` still writes a
+harness and still never runs it. `confirm` runs a *different artifact*: a fuzz target it generates
+for a candidate (`target.ts`), not the researcher's harness. The reporter stays a pure renderer
+that spawns nothing and makes no model calls; the stage that spawns things is a stage of its own,
+which is exactly what §12.4's interface was for. A human running the harness remains the strongest
+observation the tool records.
+
+#### 20.35.1 The question is not "did it crash"
+
+A generated target has to call the function the finding named, and **`symbols` records no parameter
+list** (§20.7 holds a name, a qualifier, a kind, a location and a language). A target therefore
+cannot write the real prototype, and inventing one fails as a *compile error in the researcher's
+terminal* — which reads as "the target is broken" rather than "the harness needs a decision".
+
+The rule that gets out of this is C's, not a guess: **`void f();` declares unspecified parameters,
+not none**, so it links against the real symbol and may be called with any argument list. C++ has
+no such rule — `f()` there means exactly zero parameters — so this stage is **C-only for now** and
+refuses C++ rather than emitting something that cannot compile.
+
+The consequence is the whole design problem, and it is stated rather than hidden: if the real callee
+takes more than the one argument passed here, the call is best-effort and the process may die for
+reasons that have nothing to do with the finding. A `SEGV` from a mismatched call is
+indistinguishable from a `SEGV` that *is* the defect. So the question this stage has to answer is
+not "did the target crash" but **"did *this* defect manifest, in the shape this class is supposed
+to manifest in"** — and two gates must agree before anything moves:
+
+1. **decidability** (`decidable.ts`) — the class is one a single bounded run can settle;
+2. **attribution** (`attribute.ts`) — the sanitizer's own category is one this class produces,
+   *and* the report lands in the finding's own file, at the finding's line or inside the function
+   the finding named.
+
+Neither is a heuristic score. Both are tables, and the tables are the record.
+
+#### 20.35.2 Decidability is a table with a refusal, not a default
+
+`FUZZ_DECIDABLE` names **twelve** classes, each with the sanitizer categories that count as its
+reproduction and the observable in the class's own terms:
+
+| class | accepted sanitizer categories |
+|---|---|
+| CWE-120 | `stack-buffer-overflow`, `heap-buffer-overflow`, `dynamic-stack-buffer-overflow`, `stack-buffer-underflow` |
+| CWE-121 | stack and dynamic-stack overflows |
+| CWE-122 | `heap-buffer-overflow` |
+| CWE-125 | heap and stack overflows (an out-of-bounds read reports as one) |
+| CWE-787 | heap, stack and dynamic-stack overflows |
+| CWE-476 | `SEGV`, `null-pointer-dereference` |
+| CWE-416 | `heap-use-after-free`, `stack-use-after-return`, `stack-use-after-scope` |
+| CWE-415 | `double-free`, `attempting double-free` |
+| CWE-401 | leak sanitizer's leak reports |
+| CWE-190, CWE-191 | `signed integer overflow`, `unsigned integer overflow`, `integer overflow` |
+| CWE-134 | heap and stack overflows, `unknown-crash` |
+
+`FUZZ_UNDECIDABLE` names **eight** more, each with the refusal recorded — the races (CWE-362,
+CWE-364, CWE-367, CWE-828) and the classes whose observable is not a crash (CWE-78 command
+injection, CWE-89 SQL injection, CWE-338 weak randomness, CWE-377 insecure temp files).
+
+The tables are separate so that a refusal can say **which kind of no it is**. "This class is known
+and one run cannot decide it" is a design boundary; "no observable is recorded for this class" is a
+gap. Both are printed, and they are not the same sentence.
+
+**A CWE with no entry anywhere is undecidable, not permissive.** It is not treated as decidable
+with an empty signature list — that would make every unlisted class fail the attribution gate and
+be recorded as `not-reproduced`, which reads as evidence about the finding rather than about the
+table. A new class either lands in one of these tables or is a decision someone made, which is the
+posture `harness.ts` already takes toward its own table.
+
+**Why races are refused rather than attempted.** `harness.ts`'s own `EXPECTED_FAILURE` already says
+it: *"A single run does NOT disprove this class."* A run that cannot disprove cannot confirm
+either — observing a race is luck, and not observing one is not evidence — so the honest outcome is
+a refusal that says so, not a coin flip recorded as a verdict. This is §4.7's argument for the
+manual path, applied to the automated one.
+
+**A bare `SEGV` is accepted for exactly one class, and that is deliberate.** In a sanitized build
+the memory classes report their own category, so a plain `SEGV` from CWE-120/121/122/125/787 means
+ASan did not see the access — which is exactly what a *mismatched call* produces. Accepting it for
+CWE-120 would let a wrongly-called function confirm a finding. It is the right signature only for
+CWE-476, where a null dereference *is* the defect.
+
+#### 20.35.3 The location gate, and the three parsing details it depends on
+
+The signature gate separates "a buffer overflow" from "some other bug". The location gate separates
+"a buffer overflow *here*" from "a buffer overflow in this file". The second is where a plausible
+false positive would come from, since one translation unit can carry several defects and the
+finding names only one.
+
+Three details came from real sanitizer output rather than from the format's documentation, and each
+was a bug until it did:
+
+- **ASan prints `==1234==ERROR:`.** A regex matching a bare `ERROR:` misses every genuine report and
+  falls through to the `SUMMARY` branch, which carries no stack at all — so the location gate would
+  have had nothing to check and *every* real crash would have been recorded `unattributed`.
+- **The signature is the category, not the header line.** ASan continues with the address and
+  registers (`…overflow on address 0x7ffd…`), which is where the report's own detail lives. The
+  stored signature is normalized to the category, because that string goes into a record a reader
+  is shown.
+- **UBSan prints one line, not a stack.** Its location does not arrive as a frame, so it is carried
+  separately (`reportedAt`) or the location gate would have been blind to the integer classes.
+
+Two ways qualify, and the second exists because the first would be too strict: the line is inside
+the range the detector matched, **or** the frame is the function the finding named. A crash at line
+11 of a function whose finding covers 11–12 qualifies both ways; one reported a few lines further
+into the same function still qualifies, because the function is what was called.
+
+**What the matcher does not do is recorded rather than implied.** It compares file paths on the
+tail, so a report from `other/src/unsafe.c` matches a finding on `src/unsafe.c` — the separator is
+required so `handlers.c` cannot match `handler.c`, but the prefix is not checked. A same-named
+function in a different module would also qualify by name. In a single-translation-unit target that
+is a narrow window; closing it needs a compile-command-level map of which file the target actually
+included, which this stage does not build.
+
+#### 20.35.4 Silence is not disproof
+
+A confirmation attempt comes back as one of **six** outcomes, not a boolean, because "it did not
+reproduce" and "it could not be attempted" are different facts and only one of them is about the
+finding:
+
+| outcome | what it means |
+|---|---|
+| `confirmed` | the sanitizer fired in the finding's own code, in the finding's own class |
+| `unattributed` | something real crashed, but not this defect — recorded, never counted |
+| `not-reproduced` | the run finished inside its budget with nothing to report |
+| `ineligible` | refused before anything ran: undecidable class, C++, or no identifier to call |
+| `build-failed` | the generated target did not compile against the target |
+| `run-failed` | it compiled but could not be run, and said nothing about the defect |
+
+`CONFIRMING_OUTCOMES` is exactly `['confirmed']`, and the rule the caller applies is the one §4.7
+states in prose: **nothing here can lower a tier.** A run that reproduces nothing leaves the finding
+exactly as it was. That is not politeness — a bounded fuzz run finding nothing is the *normal*
+outcome for a real defect that needs a long or specific input, so treating silence as disproof would
+make this stage a recall hole wearing the costume of a precision gate. `build-failed` is kept apart
+from `not-reproduced` for the same reason: a compiler error on a machine without the right headers
+is not evidence about a defect, and a record that blurred the two would let a broken machine read as
+a clean finding.
+
+#### 20.35.5 What runs where
+
+Two sandboxed commands, and nothing outside the sandbox: the compile and the fuzz run. The target
+checkout is bound **read-only**, only per-run scratch is writable, the network is absent (D20), and
+crash artifacts land in scratch so a saved input can be replayed. Everything this stage does to the
+host is create a directory under scratch and write two files into it. The compile is sandboxed
+rather than exempted — a compiler is a program that reads attacker-shaped input, the target's own
+source, which is why `recon` and `build` already run theirs in the sandbox — and it keeps the
+failure honest, since "it did not compile inside the sandbox" is a fact about the sandbox's view of
+the world, which is the view the rest of the pipeline works in.
+
+**One change was needed in the sandbox layer itself, and it is `addressSpaceLimitMiB: null`.** The
+policy used to express memory as `RLIMIT_AS`. A sanitized binary cannot run under it: ASan reserves
+*terabytes* of virtual address space for shadow memory that it never actually uses, and the run
+aborts before the fuzzer starts with `ReserveShadowMemoryRange failed — Perhaps you're using ulimit
+-v`. Virtual reservation is not consumption, so the cap was measuring the wrong thing. The policy
+now distinguishes **"no address-space limit"** from a limit of zero, the compile keeps the cap, and
+the fuzz run leaves it unset and bounds memory with libFuzzer's own `-rss_limit_mb` instead — the
+resident set, which is the memory actually consumed.
+
+#### 20.35.6 Four defects the run found, none of them in the design
+
+The design was testable before it was ever run — `planFuzzTarget` and `attributeReport` are pure,
+which is why the class tables and the gates were pinned by 22 tests before a compiler was invoked —
+but the stage as a whole could only be wrong in ways a real run reveals. The first end-to-end
+attempt revealed four:
+
+1. **`-O1` deletes the defect.** The fuzzer executed 24 million inputs against a known
+   `stack-buffer-overflow` fixture and coverage stayed at `cov: 5` with an empty corpus: the body
+   never ran. The cause is not the target. ASan can only report accesses that still exist, and the
+   optimizer removes exactly the ones a defect consists of when nothing reads their result —
+   `strcpy(buf, line)` into a buffer no one subsequently reads is an unobservable store. Measured on
+   clang 22: `-O0` reports `stack-buffer-overflow`; `-O1` and `-O2` report nothing, which would have
+   been recorded as `not-reproduced`. Flags are now pinned `-O0`, and the comment saying why is a
+   measurement rather than a preference.
+2. **The generated target's call is not sound under C23.** clang 22 defaults to C23, where
+   `void f()` means `void f(void)` — so the call this stage relies on becomes undefined behaviour
+   the compiler tolerates only as a deprecated extension, and the harness the design assumes does
+   not exist. Pinned `-std=gnu17`, which is what makes the empty parameter list mean *unspecified*.
+3. **ASan cannot symbolize here.** There is no `llvm-symbolizer` on this machine (it ships with
+   LLVM's tooling, not with clang), so every frame arrived as `(/scratch/bin+0x52bf0d)` — no file,
+   no line — and the location gate found nothing, which is why the first successful crash was
+   recorded `unattributed`. `symbolize.ts` now resolves the offsets itself with `addr2line` rather
+   than assuming the host has a symbolizer.
+4. **`addr2line` cannot read clang 22's default DWARF.** It failed with *"mangled line number
+   section (bad file number)"*, a binutils/clang version mismatch. `-gdwarf-4` is what it parses:
+   with it, `binary+0x52bf0d` resolves to `handler /tmp/…/unsafe.c:5`, exactly the `strcpy` line.
+
+Defects 3 and 4 are one class of mistake in two places: **a stage trusting the environment to be
+configured the way the design assumed.** Both fixes move the work into the stage, and both were
+found by reading the run's raw output rather than its return value.
+
+#### 20.35.7 The record, and the tier
+
+`windbreak confirm` is a batch command over a run's surviving findings — `--candidate` to narrow,
+`--seconds` and `--seed` for the attempt, `--scratch` for where it builds, `--backend` to pin the
+sandbox, `--all` to re-attempt a candidate that already has a row, `--json` for machine output.
+`confirmations` is its own table (schema **v8**, indexed on `candidate_id` and `run_id`), holding
+the outcome, the detail, the signature, the location, the seconds given to the fuzzer and the
+wall-clock duration. A re-run replaces a row only with `--all`, because a second attempt that
+reproduced nothing must not erase a first that did.
+
+The tier is a **new member of §2.1.5's vocabulary, ordered between the two that exist**:
+`statically-verified` < `dynamically-confirmed` < `human-reproduced`. It is stronger than a model's
+static argument and weaker than a human who ran it and watched, and it deliberately does **not**
+satisfy §10's `human-reproduced` gate on library capture — automation is not a person signing their
+name. `deriveFindings` takes it as an input beside `reproduced` rather than merged into it, because
+the two are different claims with different strengths, and the tier only ever moves **up**: `report`
+reads what `confirm` proved (`readConfirmedCandidateIds`) and the never-demote rule holds by the
+derivation's own shape rather than by a check.
+
+#### 20.35.8 Verification
+
+`src/confirm/` carries **35 tests** — 8 for the target planner, 14 for attribution, 8 for the
+symbolizer, and 5 integration — and the sandbox, reporting and database suites were re-run over the
+`RLIMIT_AS` and tier changes. The integration test is the proof: a real C fixture with a seeded
+`strcpy` overflow is compiled and fuzzed **inside bwrap**, and it comes back `confirmed` with a
+`stack-buffer-overflow` located at the finding's own line in about 200 ms; a safe control in the
+same fixture is **not** confirmed after its full budget, which is the negative result the stage is
+supposed to produce; an unbuildable file reads as `build-failed` rather than `not-reproduced`; and
+the bound checkout is byte-identical afterwards.
+
+WindBreak **1388 pass / 1 fail** — the one failure is the long-standing `pre-init/client-env`
+environment case, unchanged and untouched here — and typecheck is clean. The stage's contribution
+above the pre-§20.35 baseline is the whole of `src/confirm/` plus the tier's own tests.
+
+#### 20.35.9 Open items
+
+- **The generated target does not meet the real signature.** It declares `extern void f();` and
+  calls it with one `char *`. That is sound C and it links, and it is also a *best-effort* call: a
+  callee taking two arguments, or a `size_t` length, is called wrongly, and the defect may not
+  manifest. Rising above this needs the parameter list the symbol index does not store — a
+  compiler-assisted signature recovery pass, or parsing the declaration out of the header — and
+  neither is built. The gates absorb the risk rather than remove it.
+- **One call shape, so most classes are out of reach.** Every target builds a single
+  `malloc`ed, NUL-terminated `char *` from the fuzz input. No length, no struct, no second buffer,
+  no file path. That is enough for the buffer classes and the null dereference and not much else;
+  the table is shaped by the harness as much as by what a sanitizer can report.
+- **`build-failed` will be the common outcome on a real target.** The compile is one `clang`
+  invocation with `-I` for the file's own directory and the checkout root, and no use of §4.1's
+  `compile_commands.json`. A target with generated headers, a build system, or a non-trivial include
+  path fails here and fails honestly, but that is a low ceiling: reusing the per-file compile
+  command the ingestion stage already produced is the obvious next step and is not taken.
+- **The budget is per finding and unbounded in total, and §9's governor is not consulted.** At the
+  60-second default, a run of forty decidable findings is forty minutes, with no prompt, no stage
+  share and no interaction with the run's budget record. `--seconds` is the only lever.
+- **`confirm` is not part of `scan`.** It is a command run after the fact, so the new tier never
+  appears unless it is invoked; §3.2's chain does not call it. Making it an optional stage between
+  verification and reporting is what would put `dynamically-confirmed` into a default run, and that
+  is a budget decision (above) before it is a wiring one.
+- **libFuzzer's corpus is not kept.** `-artifact_prefix` saves a crashing input, which is the
+  artifact that matters, but the coverage corpus is discarded with the scratch directory — so a
+  second attempt starts from nothing rather than from the first one's coverage, and two runs are not
+  comparable in the way §8.4's determinism rule would want. The seed is pinned, which makes the
+  *sequence* reproducible, not the search.
+- **`unattributed` is recorded and has no reader.** It is the honest outcome for a crash that is
+  real and not this defect, and it is written to the table and then surfaced nowhere — the finding
+  is untouched, and a genuine failure found by the fuzzer is not reported anywhere a researcher
+  would look. That is a hole in the *record*, not in the tier.
+- **The `RLIMIT_AS` opt-out is per call, not per stage kind.** `addressSpaceLimitMiB: null` is now
+  expressible and `confirm` is its only user, which is correct today; it also means the next stage
+  that needs a sanitized binary has to make the same decision deliberately rather than inherit it,
+  and nothing in the policy type says "this call is sanitized".
+- **Only clang is exercised, and only one machine's toolchain.** The flags are pinned against
+  clang 22 with binutils `addr2line`; `-gdwarf-4` is a workaround for that pairing, and a host with
+  `llvm-symbolizer` would not need it. Nothing detects the toolchain and adapts — the flags are
+  constants chosen by measurement on one host.
+
+---
+
+*This document is the plan, and the implementation has caught up to it. It was written to be worked through before implementation; where a section's prose and §20 disagree, §20 describes the code that exists. Claims that later work overtook are marked in place (`*built since; see §X*`) rather than deleted, so a reader can tell a superseded statement from an oversight. The scaffold (§20.4), the sandbox + build step (§20.6), recon (§20.7), OSV correlation (§20.8), the baseline engines stage (§20.9), the candidate pipeline (§20.10), reporting (§20.11), the pattern library (§20.12), the `scan` orchestrator (§20.13), the adjudication screen (§20.14) — with its mouse and scrolling behaviour (§20.15) and its layout and palette (§20.16) — are in place and verified, as is D16's deferral (§20.17) with the request/services handoff seam it required (§20.20), the `eval` scoring core (§20.18), Tier 1's function-level corpus (§20.19), §4.4.1's patch-mined discovery (§20.21) — the MVP feature D5 named and the only §3.2 capability that had been missing — §4.4.3's check-to-use / race module (§20.22), the flagship capability, with the one interpretation §4.4.3 left open recorded against its own claim rather than papered over, and §4.4.3's CWE-364 signal-handler machine (§20.23) — the one race family those four FSMs cannot express, and the one whose shapes MITRE enumerates itself. §6's C/C++ scope was then widened for the program model alone (§20.24), which found a recall hole in the C++ index that had been there since §20.7 and pinned the C-shaped sweeps to the languages whose tables they actually are, so that a Python repository reports how much of itself went unswept instead of looking clean — that number now printed as its own line beside the candidate counts rather than only as a warning (§20.24.5). §20.24.7 then makes the next language affordable: the single `DETECTOR_LANGUAGES` constant became a per-detector capability matrix, so a language is swept by the detectors whose tables it has — and one only some of them cover is reported as *partly swept* with the missing detectors named, rather than rounded to swept or unswept. The shipped matrix is still C and C++ everywhere, so detection is unchanged; what changed is that adding a language is now one entry on one list, and the report says which detectors skipped a language rather than only how many callables went unread. D22's corpus is now whole (§20.25): the private list shipped with §20.18 and `fetch` materializes its snapshots at the pinned revisions, blobless so that the two miners still have a history to mine. The model path has then been driven **live** for the first time (§20.26) — a complete scan, `exit 0`, 2 triaged, 1 cross-model-verified, 1 CWE-120 finding written — which is how three defects in `pipeline/invoke.ts` were found: a tool list that removed the only channel `structured_output` reads, an instruction telling the model not to use the tool the runtime requires, and a step ceiling that made the runtime's own retry unreachable. All three were invisible to the fake-invoker suite by construction. That run also left a requirement no section wanted to own — eight exported environment values before a model call may even be attempted — and §20.27 removes it, with the note that the first attempt failed because the fix imported the very module whose snapshot it had to precede. §20.28 then revisits §20.14.1's first honesty rule — a missing database used to be refused with a non-zero code, and now opens the screen with the path marked *not found*, because the screen has room to name the state and the refusal did not. §20.29 is the one section written as a **plan rather than a record** — an investigator that can read and execute in the target, inside the adjudication screen — and it is marked as such where it sits, with the two invariants it touches named rather than discovered later; **its first four slices are now built** (§20.29.7): a mediated workspace that confines every read to the target and runs every command in the sandbox, five owned custom tools with §5.1's neutralization extracted rather than reimplemented, an agent whose prose output cannot be read as a verdict, a recorded transcript in a table of its own (`investigator_turns`, schema v6) that `runVerification` does not query, and a `propose_candidate` channel whose candidates enter §4.5 at `state: 'new'` stamped `investigator` — with the "not an engine match" claim §20.29.4 requires actually made in the prompt's provenance line, the writeup, the SARIF result, and a `modelProposed` funnel column. The role needed a distinction rather than a union member: the investigator is configurable and recordable while staying out of `ModelRole`, which is what the verdict path accepts, and that containment is asserted at compile time. Two live runs found three defects the fake-client suite could not — a prompt that told the model to report in prose instead of proposing, a turn that reported `ok: true` with no answer at all, and a step ceiling measured too low. **Slice 5 puts it in the screen** — `c` in the adjudication screen opens a chat in the decision card's slot (*superseded: §20.32 moves it to the body, with the queue kept as a rail*), `/hunt` for the target and a plain question for the selected row, with every turn recorded and the screen still constructing no client of its own — so **D32's row is now marked false at the point of the claim**, exactly as §20.29.3 said it would be. **Slice 6 closes the section** — a per-conversation ceiling in model calls, counted from the provider's own usage reports with a floor of one per turn, one budget shared by a hunt and an explain, a `windbreak.config` row the screen actually reads, and `esc` stopping a turn in flight and reporting it as `cancelled` rather than `failed` — which is the last item §20.29.6 left open and the thing that makes the pane safe to leave open. §20.29.8 then gives the cold start a face: the renderer is built first, a small loading view names what is being waited for and the database path, and only then is the bridge constructed — with the two gates that make a frame actually reach the terminal (a `flushSync` commit and a bounded `renderer.idle()` draw) found by running it, and asserted on captured frames rather than on call order. §20.30 then puts the code beside the queue: `f` lists the target's file inventory — what recon **indexed**, not a directory walk, so the files on screen are the same set the findings are about — in the detail pane's slot, with the target and pinned commit in its header, the dropped rows printed when the listing is capped, and its three empty states (no target, an empty inventory, a populated tree) said three different ways rather than collapsed into one empty pane. Its second slice is where the editing lands: a writable *copy* of the target that models may patch and rebuild, reached by `tab` from the same pane, while the target itself stays a read-only bind — **the artifact a finding cites has to remain the artifact a reader can re-examine**, and that is the one property security research can least afford to lose. The copy, the three write tools, the two agents' separate tool lists, and schema v7's `working_copies` are built and verified (§20.30.1 records what is still open). §20.31 then answers the question that entry left open — `windbreak` in a checkout nothing has scanned now opens on **that repository**, because the screen resolves the git root (falling back to the working directory) and the pane falls back to a filesystem walk when the database has no target to show; the walk reuses recon's own `collectInventory`, so both sources share one answer to what a source file is, and it is **labelled as unscanned** in a warned header line rather than passed off as the inventory the findings are about, which is the rule §20.30 chose the inventory for in the first place. The models read the same directory through a fallback root that a run's own target always overrides, and the scratch goes to the system temp dir because an unscanned checkout has no `.windbreak` and writing one would be a change to a tree the screen is only reading. What such a checkout cannot do is now said outright rather than discovered: there is no run, so turns are not recorded, candidates cannot be created, and the engineer is refused — writing being recorded is what §20.30's engineer *is*, and attribution needs a run. §20.32 then follows where §20.31's fallback left the screen usable: `c` gives the chat the body instead of a card-sized slot, the queue stays as a narrow rail that is dropped rather than squeeze the prose, and — the part that was a real defect rather than a preference — the transcript **wraps** where it used to truncate, so a model's paragraph is read instead of arriving as its first clause and an ellipsis. Wrapping happens where the lines are built so the pane's row-based scroll counts the rows that exist, and the hint row is the chat's own because the browse keys are inert while the input owns the letters. §20.33 then makes the command a **passage rather than a destination**: a bare `windbreak` opens a start menu — run a scan, browse the files, resume a previous run — instead of §5.3's queue, with the repository and the database named above the rows before anything is chosen. The scan runs **in this process** (the interactive budget decider reads stdin, which the renderer owns, so `yes: true` is correctness rather than a default), streams the run's own log, and reads its stage from the run's own announcements; a continuation takes its checkout from the run rather than the working directory, exactly as the batch `resume` does. The queue becomes a screen *under* the menu reached through a run or the whole-database row, `--run` still skips the menu so the batch contract is unchanged, and a finished scan keeps its summary — a deliberate departure from the interview's "land on the dashboard", because the summary is a run's only record of its warnings and of whether `0 candidates` means clean or unswept. §20.35 then reverses the plan's own last decision: D21 kept v0.1 out of the fuzzing business and §16 put step 11 last as *out of MVP scope*, and the interface §12.4 preserved is now the thing it was preserved for — `windbreak confirm` generates a libFuzzer target for a finding, compiles and runs it **inside the sandbox** with the checkout bound read-only, and records what manifested in a table of its own (schema v8). The gates are the design: a class is confirmable only if one run can settle it (twelve do, eight are refused with their reasons, and races are refused because *a single run cannot disprove, so it cannot confirm*), and a crash counts only when the sanitizer's own category matches the class **and** the report lands in the finding's own file or function — because the symbol index stores no parameter list, so a generated target calls a callee whose signature it cannot know, and a mismatched call segfaults just as convincingly as a real defect. Four defects were found by running it and none by reading it: `-O1` deletes the very store a defect consists of, C23 makes the empty parameter list mean `void`, ASan cannot symbolize without `llvm-symbolizer`, and `addr2line` cannot read clang 22's default DWARF. The result is a fourth tier — `statically-verified` < `dynamically-confirmed` < `human-reproduced` — that never demotes, because a bounded run that finds nothing is silence rather than disproof, and `build-failed` is kept apart from `not-reproduced` so a broken machine cannot read as a clean finding. §20.34 then takes the one failure that was arriving as *evidence about the target* and says it as a fact about the account: a depleted balance or a rejected credential is classified once (`provider-failure.ts`, two kinds with two different fixes, from the two message shapes the live backend actually produces), carried on the turn that met it, held by the bridge until a call goes through rather than for one turn, reaching the composer's out-of-credits takeover — which now reads the refusal that carries no status as well as a 402 — and stated **once on `ScanResult`** — above the stage table in both batch summaries — instead of as one true `warning:` per candidate among a hundred identical ones. **§7.3's command list is implemented**, `fetch` included: `prepare` (§6.3) and `eval` (§11, both tiers) were the last two placeholders, and `fetch` and `confirm` (D21's reversal, §20.35) are the two commands added since that list was first written. §17's remaining open items, §20.5, and the open items in §20.6.3–20.6.4, §20.7.2–20.7.5, §20.8.2, §20.9.3, §20.10.3, §20.11.3, §20.12.6, §20.13.6, §20.14.5, §20.15.4, §20.16.6, §20.17.4, §20.18.9, §20.19.8, §20.20.6, §20.21.6, §20.22.7, §20.23.6, §20.24.6, §20.25.6, §20.26.6, §20.27.7, §20.28.5, §20.30.1, §20.31.1, §20.32.1, §20.33.7, §20.34.5, and §20.35.9 are the live unknowns — §20.29.6's last two went with slice 6, so that section is no longer on the list. §20.24 is the one section that is deliberately *half* of what was asked: indexing eleven languages is finished and verified, and detecting in them is the per-language work §20.24.6 enumerates. §20.22.1 is the one item in that list that is a question about *scope* rather than a known limit: §4.4.3 says "four known patterns" and never names them. §20.23 is the counter-example that shows the difference — CWE-364 names its own behaviours, so that section's shapes carry no such caveat, and what it records instead are limits of the analysis rather than questions about what to build.*

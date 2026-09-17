@@ -15,11 +15,6 @@ import {
   type SavedModelStore,
 } from '@codebuff/common/util/freebuff-default-model-migration'
 
-import {
-  parseWindbreakPreferences,
-  type WindbreakPreferences,
-} from '../windbreak/preferences'
-
 import { getConfigDir } from './auth'
 import { AGENT_MODES } from './constants'
 import { logger } from './logger'
@@ -74,10 +69,6 @@ export interface Settings {
    *  moment it renders, not when it is dismissed, so "once" holds however
    *  the launch ends. */
   freebucksIntroSeenAt?: string
-  /** The adjudication screen's saved layout and colours (spec §20.16). Parsed
-   *  by `parseWindbreakPreferences`, which owns the schema so the screen and
-   *  this allowlist cannot drift apart. */
-  windbreak?: WindbreakPreferences
 }
 
 /**
@@ -234,13 +225,6 @@ const validateSettings = (parsed: unknown): Settings => {
   // "shown once" mark lasted exactly one launch (2026-09-05).
   if (typeof obj.freebucksIntroSeenAt === 'string') {
     settings.freebucksIntroSeenAt = obj.freebucksIntroSeenAt
-  }
-
-  // Only when the file actually carries one: a settings file written before
-  // this key existed must stay byte-identical on the next save, and the screen
-  // falls back to the defaults on its own.
-  if (typeof obj.windbreak === 'object' && obj.windbreak !== null) {
-    settings.windbreak = parseWindbreakPreferences(obj.windbreak)
   }
 
   return settings

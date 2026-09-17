@@ -44,7 +44,7 @@ import { drainClientLogs } from './utils/log-shipper'
 import { shouldShowProjectPicker } from './utils/project-picker'
 import { saveRecentProject } from './utils/recent-projects'
 import { startEngagementTracking } from './utils/engagement'
-import { isWindbreakInvocation, runWindbreakCommand } from './windbreak'
+import { consumeWindbreakInvocation } from './utils/windbreak-launch'
 import {
   exitCliWithFatalError,
   installProcessCleanupHandlers,
@@ -207,17 +207,13 @@ async function main(): Promise<void> {
     }
   }
 
-  // `windbreak` is its own surface with its own parser, its own screen, and no
-  // chat session behind it. Like the smoke paths above, it has to be handled
-  // before commander parses the argv — the main program has no `--db`, and by
-  // design never will.
-  if (isWindbreakInvocation(process.argv)) {
-    const code = await runWindbreakCommand(process.argv)
-    // A refusal happens before the screen exists, so this command never gets to
-    // own the exit. A zero return means the screen is up and will exit itself.
-    if (code !== 0) process.exitCode = code
-    return
-  }
+  // `windbreak` still has its own argv — the main program has no `--db`, and by
+  // design never will — but it is no longer its own surface. The subcommand is
+  // turned into the session's first message (`utils/windbreak-launch`) and the
+  // agent works the queue through the WindBreak CLI, so the invocation is read
+  // here, before commander gets the chance to reject its options, and the
+  // ordinary chat app below is what starts.
+  const windbreakPrompt = consumeWindbreakInvocation(process.argv)
 
   const {
     initialPrompt,
@@ -388,7 +384,7 @@ async function main(): Promise<void> {
 
     return (
       <App
-        initialPrompt={initialPrompt}
+        initialPrompt={windbreakPrompt ?? initialPrompt}
         agentId={agent}
         requireAuth={requireAuth}
         hasInvalidCredentials={hasInvalidCredentials}

@@ -8,9 +8,19 @@
  * no model").
  */
 
-/** §14.2. The tier is stated on every artifact; §2.1.5 forbids omitting it. */
+/**
+ * §14.2. The tier is stated on every artifact; §2.1.5 forbids omitting it.
+ *
+ * Ordered by strength, and the order is not decoration: `deriveFindings` picks the
+ * strongest tier a candidate has earned, and §10's replay rule reads this
+ * vocabulary. `dynamically-confirmed` sits between the other two because that is
+ * what it is — stronger than a model's static argument, weaker than a human who
+ * ran it and watched. It deliberately does **not** satisfy the `human-reproduced`
+ * gate on library capture: automation is not a person signing their name.
+ */
 export const EVIDENCE_TIERS = [
   'statically-verified',
+  'dynamically-confirmed',
   'human-reproduced',
   'contested',
 ] as const
@@ -79,7 +89,11 @@ export interface Finding {
   modelProposed: boolean
 }
 
-/** §12.4's `HarnessResult`. Written to disk; **never** executed (D21). */
+/**
+ * §12.4's `HarnessResult`. Written to disk; **never** executed by the code that
+ * emits it. The automated confirmation added in §20.35 (`confirm/`) runs a fuzz
+ * target of its own, not this artifact.
+ */
 export interface HarnessResult {
   findingId: string
   /** Absolute paths of the harness files written. */

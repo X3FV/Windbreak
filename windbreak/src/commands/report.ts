@@ -40,7 +40,8 @@ const isDisclosureStatus = (value: string): value is DisclosureStatus =>
  * Renders recorded state into SARIF, a writeup per finding, and a manual harness
  * per finding. Two things this command deliberately does not do: it never makes
  * a model call (reporting is a rendering stage), and it never builds or runs the
- * harnesses it generates (D21).
+ * harnesses it generates. `confirm` (§20.35) is the stage that runs something;
+ * it runs a fuzz target of its own, never this artifact.
  */
 export const registerReportCommand = (program: Command): void => {
   program
@@ -201,8 +202,10 @@ export const registerReportCommand = (program: Command): void => {
             )
           }
           console.log(
-            '\nHarnesses were generated but not built or run (spec D21). They are under' +
-              ' harness/<finding-id>/.',
+            '\nHarnesses were generated but not built or run — they are under' +
+              ' harness/<finding-id>/, for you to build and run yourself. To have' +
+              ' WindBreak try to reproduce a finding automatically instead, run' +
+              ' `windbreak confirm` (spec §20.35).',
           )
         }
 

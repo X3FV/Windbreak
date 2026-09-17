@@ -26,6 +26,7 @@ import {
   createNonInteractiveDecider,
 } from '../budget'
 import { MissingCredentialsError, SdkEnvironmentError, createWindbreakClient } from '../client'
+import { findProviderFailure } from '../provider-failure'
 import { createRun, finishRun, persistCandidates, requireEngines, runBaselineEngines } from '../engines'
 import { runPatchMining } from '../patchmine'
 import { runToctou } from '../toctou'
@@ -369,6 +370,10 @@ export const runScan = async (options: ScanOptions): Promise<ScanResult> => {
       resumeFrom: null,
       report: null,
       languageCoverage: readLanguageCoverage(options.db, options.targetId),
+      // Nothing ran in this invocation, so nothing was refused here. What the *recorded*
+      // stages met is on their own rows, and a resume that re-enters them will classify it
+      // then rather than this path reporting a refusal it did not observe.
+      providerFailure: null,
       warnings: ['every requested stage was already complete'],
     }
   }
@@ -471,6 +476,16 @@ export const runScan = async (options: ScanOptions): Promise<ScanResult> => {
   const counts = deriveCounts(allStages)
   const cacheHitRate = rates.calls > 0 ? rates.hits / rates.calls : null
 
+  // Classified once, from the evidence the run already collected: the per-call warnings and
+  // the reasons attached to stages that never ran. Both are where a refusal actually shows
+  // up — a provider that refuses every call is a warning per candidate, and an environment
+  // with no credentials at all is a *skipped* stage whose reason says so — so reading them
+  // is a search rather than a second tally that could drift from them.
+  const providerFailure = findProviderFailure([
+    ...warnings,
+    ...allStages.map((stage) => stage.reason ?? ''),
+  ])
+
   writeRunMetrics({
     db: options.db,
     runId,
@@ -493,6 +508,7 @@ export const runScan = async (options: ScanOptions): Promise<ScanResult> => {
     // reports the model it found rather than an empty coverage line that would
     // read as "nothing indexed" instead of "nothing ran".
     languageCoverage: readLanguageCoverage(options.db, options.targetId),
+    providerFailure,
     warnings,
   }
 
