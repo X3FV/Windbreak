@@ -51,6 +51,12 @@ import { getCustomToolDefinition } from '@codebuff/sdk'
 
 import { neutralizeUntrustedText } from '../pipeline/context'
 import {
+  INVALIDITY_CLASSES,
+  invalidityClass,
+  isInvalidityClassId,
+  judgeCheck,
+} from './disapprove'
+import {
   MAX_PROPOSALS_PER_TURN,
   PROPOSE_TOOL_NAME,
   proposeInputSchema,
@@ -64,6 +70,7 @@ import type { CustomToolDefinition } from '@codebuff/sdk'
 import type { InvestigatorAgentName } from './agents'
 import type { InjectionSignal } from '../trust/injection'
 import type { PatchAction } from './patch'
+import type { CheckJudgement, FalsificationAttempt } from './disapprove'
 import type { ProposedSite, ProposalRejection } from './propose'
 import type { InvestigatorWorkspace } from './workspace'
 
@@ -100,6 +107,16 @@ export const TARGET_TOOL_NAMES = [
   'run_in_target',
 ] as const
 
+/**
+ * The disapprove-first tool (§20.42).
+ *
+ * Root-agnostic, and that is deliberate: a doubt is equally owed by the engineer's
+ * proof of concept and by the investigator's reading of the target, and the only thing
+ * that differs is which root the command runs against — which is the *agent's* choice
+ * already, since it is the agent that knows what it has been working in.
+ */
+export const FALSIFY_TOOL_NAME = 'record_falsification_check' as const
+
 /** Tools that read or run against the **working copy**, which is writable. */
 export const COPY_TOOL_NAMES = [
   'read_copy_file',
@@ -125,6 +142,11 @@ export const COPY_WRITE_TOOL_NAMES = [
 /** The read-only investigator's tools, unchanged from §20.29. */
 export const INVESTIGATOR_TOOL_NAMES = [
   ...TARGET_TOOL_NAMES,
+  // §20.42. Runs a check the model names and records what happened. It adds no reach
+  // the run tool did not already have — same sandbox, same read-only target, same
+  // absence of network — so §20.29.2's claim that this list has no write tool in it is
+  // unmoved. What it adds is that the *judgement* of the result is this repository's.
+  FALSIFY_TOOL_NAME,
   // §20.29.4's discovery channel. Its presence here does not weaken §20.29.2's claim
   // that the list has no write tool in it: the target is still bound read-only and no
   // tool can change it. This tool writes nothing at all — it *validates* a location and
@@ -143,6 +165,12 @@ export const INVESTIGATOR_TOOL_NAMES = [
  */
 export const ENGINEER_TOOL_NAMES = [
   ...COPY_TOOL_NAMES,
+  // §20.42, and its position here is the construction order rather than a statement:
+  // the root tools are built together, so the read/run tools and this one arrive as one
+  // group and the write tools follow. The engineer is the agent this gate matters most
+  // for — it is the one that produces a proof of concept and then reports whether the
+  // proof of concept worked.
+  FALSIFY_TOOL_NAME,
   ...COPY_WRITE_TOOL_NAMES,
   // Last, as on the investigator: the proposal channel is the one tool that is not
   // about the tree the agent is working in.
@@ -228,6 +256,16 @@ export interface InvestigatorToolOptions {
   onProposal?: (site: ProposedSite) => void
   /** Called with each refused proposal, so a hunt can report what it rejected. */
   onRejection?: (rejection: ProposalRejection) => void
+  /**
+   * Called once per recorded falsification check (§20.42).
+   *
+   * Carries the **judgement** as well as the run: `outcome` is `disapprove.ts`'s,
+   * derived from the exit code and the marker, and never from anything the model said
+   * about the check. That is what makes the record usable as evidence rather than as a
+   * claim, and it is why this is a callback the tool fires rather than a value the model
+   * returns.
+   */
+  onFalsification?: (attempt: FalsificationAttempt, judgement: CheckJudgement) => void
   /**
    * Ceiling on target bytes returned by one call.
    *
@@ -424,6 +462,50 @@ interface RootNames {
   list: InvestigatorToolName
   run: InvestigatorToolName
 }
+
+/**
+ * The falsification-check input (§20.42).
+ *
+ * No field for an expected outcome, and that absence is the design: an outcome the
+ * model could supply is an outcome the model could be wrong about, and the whole
+ * reason this tool exists is that the judgement is not the model's to make.
+ */
+const falsifyInput = z.object({
+  klass: z
+    .string()
+    .describe(
+      'The doubt being checked, by its id, e.g. "defect-not-the-harness". Only doubts ' +
+        'in this gate\'s table are accepted; an id it does not know is refused.',
+    ),
+  command: z
+    .array(z.string())
+    .min(1)
+    .describe(
+      'The exact command that settles the doubt, as argv. Run in the same sandbox as ' +
+        'your other commands.',
+    ),
+  describes: z
+    .string()
+    .min(1)
+    .describe(
+      'One sentence: what this check is about, for the reader. Not what you expect it ' +
+        'to show — the result is recorded from the run.',
+    ),
+  marker: z
+    .string()
+    .optional()
+    .describe(
+      'The string the output must contain (or, for a doubt that requires its absence, ' +
+        'must not contain). Required for doubts whose outcome is about which failure this ' +
+        'is, such as the sanitizer category for a memory class.',
+    ),
+  timeoutSeconds: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe('Wall clock for this check. Clamped to the workspace ceiling.'),
+})
 
 const TARGET_NAMES: RootNames = {
   read: 'read_target_file',
@@ -663,7 +745,138 @@ const createRootTools = (
     },
   })
 
-  return [readTool, searchTool, listTool, runTool]
+  /**
+   * The falsification-check tool (§20.42).
+   *
+   * The model names a doubt and a command; **this runs the command and judges the
+   * result**. Nothing the model says about what the check will show is read, which is
+   * the entire point: `disapprove.ts` closes the loop on the codebase's oldest rule —
+   * a model's self-report is not evidence — by making the *outcome* of a self-check
+   * something the model does not get to author.
+   *
+   * Three refusals, all of them normal model behaviour rather than faults:
+   *
+   * - a doubt id that is not in the table, answered with the list of ones that are;
+   * - a doubt whose check must name a marker, answered without one — refused here
+   *   rather than judged `inconclusive`, so the model can correct itself in the same
+   *   turn instead of spending one on a check that could never have settled anything
+   *   (the `inconclusive` branch in `judgeCheck` still exists for records made any
+   *   other way);
+   * - a command the sandbox refused to start, which is a fault and is labelled as one.
+   */
+  const falsifyTool = getCustomToolDefinition({
+    toolName: FALSIFY_TOOL_NAME,
+    description:
+      'Record a falsification check for one doubt about your own work. Name the doubt and ' +
+      'the exact command that would settle it; the command is run in the sandbox and the ' +
+      'result is judged here, not by you. Do not state what you expect it to show. ' +
+      'Outcomes: "survived" means the check came back against the doubt and your work ' +
+      'stands; "invalidated" means the check confirmed the doubt and your work does not ' +
+      'hold; "inconclusive" means the check ran and settled nothing, which is not a pass. ' +
+      'A doubt you never check is not a pass either.',
+    inputSchema: falsifyInput,
+    exampleInputs: [
+      {
+        klass: 'check-can-fail',
+        command: ['/bin/sh', '-c', './poc && echo UNEXPECTED_OK; ./poc-control || echo control-failed'],
+        describes:
+          'the same harness against a subject with the guard in place, which must not report the defect',
+        marker: 'control-failed',
+      },
+    ],
+    execute: async ({ klass, command, describes, marker, timeoutSeconds }) => {
+      const refuse = (reason: string) => {
+        options.onResult?.({
+          tool: FALSIFY_TOOL_NAME,
+          signals: [],
+          sourceBytes: 0,
+          truncated: false,
+          error: reason,
+        })
+        return jsonResult({ recorded: false, error: reason })
+      }
+
+      if (!isInvalidityClassId(klass)) {
+        return refuse(
+          `"${klass}" is not a doubt this gate models, so a check against it would be ` +
+            'recorded and then weighed as nothing. The doubts are: ' +
+            `${INVALIDITY_CLASSES.map((entry) => entry.id).join(', ')}.`,
+        )
+      }
+
+      const entry = invalidityClass(klass)!
+      const markerRequired =
+        entry.expects.kind !== 'marker-absent' && entry.expects.marker === 'required'
+
+      if (markerRequired && marker === undefined) {
+        return refuse(
+          `\`${klass}\` is a doubt about *which* failure the run produced, so the check ` +
+            'has to name the string to match against (`marker`). Without one the result ' +
+            'cannot settle the doubt, and a check that cannot settle the doubt is not ' +
+            `worth running. What a pass looks like here: ${entry.expects.means}.`,
+        )
+      }
+
+      try {
+        // Clamped for the same reason the run tool clamps: the ceiling is the
+        // workspace's, and a model that asks for an hour is not told otherwise — it is
+        // given the result that actually happened.
+        const limit = Math.min(
+          timeoutSeconds ?? workspace.timeLimitSeconds,
+          workspace.timeLimitSeconds,
+        )
+
+        const result = await runCommand(command, limit)
+
+        const attempt: FalsificationAttempt = {
+          klass,
+          argv: [...result.argv],
+          describes: describes.trim(),
+          marker: marker ?? null,
+          exitCode: result.exitCode,
+          stdout: result.stdout,
+          stderr: result.stderr,
+          timedOut: result.timedOut,
+        }
+
+        const judgement = judgeCheck(entry, { marker: attempt.marker }, attempt)
+        options.onFalsification?.(attempt, judgement)
+
+        const output = [
+          result.stdout.length > 0 ? result.stdout : '(no stdout)',
+          result.stderr.length > 0 ? `--- stderr ---\n${result.stderr}` : '',
+        ]
+          .filter((part) => part.length > 0)
+          .join('\n')
+
+        return deliver(
+          FALSIFY_TOOL_NAME,
+          [
+            `doubt: ${klass} — you have not shown that ${entry.doubt}`,
+            `command: ${attempt.argv.join(' ')}`,
+            `exit code: ${result.exitCode}`,
+            result.timedOut ? 'timed out' : 'completed',
+            `judged: ${judgement.outcome} — ${judgement.detail}`,
+          ].join('\n'),
+          output,
+          options,
+          {
+            recorded: true,
+            klass,
+            outcome: judgement.outcome,
+            detail: judgement.detail,
+            argv: [...attempt.argv],
+            exitCode: result.exitCode,
+            timedOut: result.timedOut,
+          },
+        )
+      } catch (error) {
+        return failureResult(FALSIFY_TOOL_NAME, error, options)
+      }
+    },
+  })
+
+  return [readTool, searchTool, listTool, runTool, falsifyTool]
 }
 
 /**

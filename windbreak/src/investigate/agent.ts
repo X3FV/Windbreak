@@ -46,10 +46,12 @@ import { TRUST_FRAMING } from '../pipeline/prompt'
 import { DEFAULT_MODEL_CONFIG } from '../models'
 import { classifyProviderFailure, statusCodeOf } from '../provider-failure'
 
+import { buildDisapproveFirstRule } from './disapprove'
 import { DEFAULT_INVESTIGATOR_STEPS } from './limits'
 import { DEFAULT_INVESTIGATOR_AGENT, createInvestigatorTools, investigatorToolNames } from './tools'
 
 import type { AgentDefinition, CodebuffClient, RunOptions } from '@codebuff/sdk'
+import type { CheckJudgement, FalsificationAttempt } from './disapprove'
 import type { FreebuffSessions } from '../freebuff-session'
 import type { ModelRoleConfig } from '../models'
 import type { ProviderFailure } from '../provider-failure'
@@ -83,9 +85,9 @@ const INVESTIGATOR_TASK = [
   'Unlike the pipeline roles that judge candidates from a fixed evidence bundle, you',
   'may read the checkout and run commands in it. Use that:',
   '',
-  '- read_target_file, search_target_files, list_target_directory, run_in_target, and',
-  '  propose_candidate are your only tools. There is no write tool, and there is no',
-  '  network.',
+  '- read_target_file, search_target_files, list_target_directory, run_in_target,',
+  '  record_falsification_check, and propose_candidate are your only tools.',
+  '  There is no write tool, and there is no network.',
   '- The target is mounted read-only. A command that tries to modify it will fail; do',
   '  not attempt it, and do not treat the failure as a finding.',
   '- Prefer demonstrating to asserting. If you can compile, run, or otherwise execute',
@@ -108,6 +110,13 @@ const INVESTIGATOR_TASK = [
   'Also say which parts of the checkout you did not examine. An accurate statement of',
   'what you did not look at is worth more than a confident one about what you did.',
   '',
+  buildDisapproveFirstRule(),
+  '',
+  'Report the outcome of the disapproval before the claim it is about, and report it as',
+  'the record has it — including the doubts you could not settle. A hunt whose summary',
+  'reads as certain while its record is full of unattempted doubts has hidden the part',
+  'the researcher needed.',
+  '',
   'Answer in prose. There is no output schema and no structured result to fill in.',
 ].join('\n')
 
@@ -129,8 +138,9 @@ const ENGINEER_TASK = [
   'the finding cites it, which is what makes your work re-checkable.',
   '',
   '- read_copy_file, search_copy_files, list_copy_directory, run_in_copy,',
-  '  write_copy_file, replace_in_copy_file, apply_patch_in_copy, and',
-  '  propose_candidate are your only tools. There is no network.',
+  '  record_falsification_check, write_copy_file, replace_in_copy_file,',
+  '  apply_patch_in_copy, and propose_candidate are your only tools.',
+  '  There is no network.',
   '- Edit the copy, never the target. Paths outside the copy are refused, and the',
   '  refusal is not a hint that the path is elsewhere. To read the original, read it',
   '  from the target path in a run command: it is mounted read-only beside the copy.',
@@ -146,6 +156,12 @@ const ENGINEER_TASK = [
   '  own patch. Describing a site in your answer does not record it.',
   '',
   'Say what you changed, what you did not examine, and what you did not build.',
+  '',
+  buildDisapproveFirstRule(),
+  '',
+  'Your final answer reports the disapproval first and the claim second. A proof of',
+  'concept that printed the right line is not yet a result: if you did not run the',
+  'control, the check is not recorded, and the work is disapproved.',
   '',
   'Answer in prose. There is no output schema and no structured result to fill in.',
 ].join('\n')
@@ -214,6 +230,16 @@ export interface InvestigatorTurn {
   /** Proposals the tool refused, with the reason, so a hunt can report them. */
   proposalRejections: ProposalRejection[]
   /**
+   * Falsification checks this turn ran, in order, with this repository's judgement of
+   * each (§20.42).
+   *
+   * The judgement is carried beside the run rather than left to be recomputed, so a
+   * record that was shown to a researcher is the same record `deriveDisapproval` weighs —
+   * one derivation of the outcome, not two that can drift. Empty means the turn ran no
+   * checks, which is what makes the pane able to say `unverified` rather than nothing.
+   */
+  falsifications: RecordedFalsification[]
+  /**
    * Provider-reported model requests this turn made.
    *
    * Counted here rather than in the budget because this is where the SDK reports it: the
@@ -238,6 +264,11 @@ export interface InvestigatorTurn {
    * Null whenever `error` is null, and for every failure that is about the call itself.
    */
   failure: ProviderFailure | null
+}
+
+export interface RecordedFalsification {
+  attempt: FalsificationAttempt
+  judgement: CheckJudgement
 }
 
 export interface InvestigatorOptions {
@@ -397,6 +428,8 @@ export const createInvestigator = (options: InvestigatorOptions): Investigator =
        * transcript is not enough to say so.
        */
       const writes: CopyWriteRecord[] = []
+      /** Falsification checks this turn, in order (§20.42). */
+      const falsifications: RecordedFalsification[] = []
 
       // Provider-reported model requests, counted as they arrive. Zero means nothing was
       // reported, which `conversation.ts` charges as one call rather than as free.
@@ -431,6 +464,7 @@ export const createInvestigator = (options: InvestigatorOptions): Investigator =
         toolCalls,
         proposals,
         proposalRejections,
+        falsifications,
         writes,
         // Classified from the error the turn is reporting, so the two cannot disagree:
         // an `error` that reads as a refusal but is not labelled as one is the failure
@@ -466,6 +500,10 @@ export const createInvestigator = (options: InvestigatorOptions): Investigator =
         onRejection: (rejection) => {
           proposalRejections.push(rejection)
           options.toolOptions?.onRejection?.(rejection)
+        },
+        onFalsification: (attempt, judgement) => {
+          falsifications.push({ attempt, judgement })
+          options.toolOptions?.onFalsification?.(attempt, judgement)
         },
       })
 

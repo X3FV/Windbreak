@@ -90,12 +90,23 @@ says cannot decide anything: it is recorded beside the two arguments and still h
 triage and verification, and its candidates are labelled as model-proposed everywhere they
 appear. Every turn is written to `investigator_turns`.
 
+Both agents also carry `record_falsification_check`, which is how a model is made to
+disprove its own work before it reports it (§20.42). The model names a doubt and the **exact
+command** that would settle it; the command runs in the same sandbox, and the result is
+judged here — from the exit code and the marker, never from anything the model says about it.
+The outcome comes back as `survived`, `invalidated` or `inconclusive`, and a doubt the model
+never checked is recorded as unattempted. **Approval is not the default**: an unattempted
+doubt, a check that settled nothing and a check that hung are all refusals, so "nothing was
+shown" (`unverified`) never reads as "it held" (`approved`). A review of the work cannot
+begin until the disapproval came back `approved`, and it is handed the record *before* it is
+handed the claim — which is the point of the ordering, not a formality about it.
+
 Press `tab` and you are talking to the **engineer** instead, which edits a writable *copy* of
 the checkout — never the checkout itself. The target stays a read-only bind, because the tree
 a finding cites has to stay the tree a reader can re-examine. The engineer has
 `read_copy_file`, `search_copy_files`, `list_copy_directory`, `run_in_copy`, the three write
-tools (`write_copy_file`, `replace_in_copy_file`, `apply_patch_in_copy`) and the same
-`propose_candidate`. The copy is made lazily, on the first engineer turn, and re-made per
+tools (`write_copy_file`, `replace_in_copy_file`, `apply_patch_in_copy`),
+`record_falsification_check` and the same `propose_candidate`. The copy is made lazily, on the first engineer turn, and re-made per
 screen session rather than reused, so a copy that has drifted from the target cannot be
 mistaken for it. A write is reported as its own block, one line per file, ending on the
 claim the whole design rests on: *the target is unchanged; these edits are in the copy.* The
@@ -1300,6 +1311,60 @@ And three things it does not tell you:
   run.
 
 Full detail, including the four kinds of drop and why each exists, is in spec §20.40.
+
+### Measuring the shape sweep: `eval --shapes`
+
+§4.4.1's patch-mined discovery is the recall investment D5 named, so it gets its own instrument over the
+same corpus. Normally it is driven by a **mined pattern** — an operation taken from the target's own fix
+commits. This scores it with none, which is the reading `patchmine/shapes.ts` explicitly rejects for a
+sweep; the point is to price that rejection rather than assume it.
+
+```bash
+windbreak eval corpus/cve-fixes.json --shapes        # score §4.4.1's detectors, no mined pattern
+windbreak eval corpus/cve-fixes.json --shapes --json # for a harness
+```
+
+No provider, no database, no engine and no subprocess — the sweep is a pure function over text, so unlike
+`--rules` this one runs in the test suite. `--rules` and `--shapes` are refused together, so a figure
+always names the instrument that produced it.
+
+```
+instrument               pairs   tp  fn   fp  tn  unscored  containment  false alarm  precision  discriminated
+───────────────────────  ─────  ───  ──  ───  ──  ────────  ───────────  ───────────  ─────────  ─────────────
+patch-mined shape sweep    267  200  67  204  63         0        0.749        0.764      0.495          0.000
+```
+
+**Read `containment` here, not `discriminated`.** This is the one place in the project where that is the
+right column, and the report says so in its own output. A candidate *generator* is not judged like a
+detector: §2.4's funnel expects the raw layer to be mostly noise and exists to be filtered, and §4.3 says
+so — detectors are judged by whether triage can cheaply discard what they surface. Containment is
+TP/(TP+FN): of the functions that really do contain a defect, how many did the sweep put in front of a
+filter. That is 0.749. `discriminated` is 0.000 because the sweep separates essentially no pair, which is
+what a generator is allowed to be bad at and a detector is not.
+
+Two of the five shapes fire nowhere, and it is not weakness:
+
+- **`guard` and `lock` require a mined operation to know what to look for**, so with no pattern they cannot
+  fire by construction — not weakness, a design boundary. The report lists them as inert rather than
+  leaving a designed zero to read as a measured one, and states the consequence plainly: the other three
+  shapes sweep with no pattern at all, but these two draw their only subject from a mined operation, and
+  the only place to mine one is the target's own fix history. A checkout that has none gets nothing from
+  them, and that is a limit no detector work reaches.
+- **`null-check` (180 vulnerable / 182 patched), `bounds-check` (119 / 120) and `lifetime` (44 / 42) did
+  fire**, which is what makes the containment figure a measurement rather than a dead sweep: 952 sites on
+  vulnerable halves and 954 on fixed ones.
+
+What it does not tell you, and the report prints each one:
+
+- **The shipping stage is still unmeasured.** This is the sweep with *no* mined pattern, which is the
+  reading `shapes.ts` rejects — it says nothing about the pattern-driven sweep that actually runs.
+- **The figure is the good half of the result.** 954 emitted sites on halves with no known defect is the
+  candidate load a triage stage would have to absorb, and no triage stage ran here.
+- **The corpus's unit is the function the fix touched**, so firing anywhere in that function counts as
+  containing the defect — right for a generator, lenient for a detector.
+
+Full detail, including the per-shape attribution and the definition that makes 0.000 differ from an earlier
+throwaway probe's 0.019, is in spec §20.43.
 
 ### Fetching the snapshots (D22)
 

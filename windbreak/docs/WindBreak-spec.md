@@ -5296,7 +5296,9 @@ stage is usually built to correct for.
   tell the two apart, because only one instrument runs.
 - **Nothing scores the TOCTOU FSMs, the signal machine or patch mining this way.** All three are
   detectors with no yield figure, and the corpus is shaped to score them as readily as it scores
-  `rules/security.yaml`.
+  `rules/security.yaml`. *Partly answered since: §20.43 scores patch mining's shape sweep this way
+  (`eval --shapes`, 0.749 containment / 0.000 pair discrimination). The other two are still unmeasured,
+  and §20.43.6 records why the sweep's figure is not the shipping stage's.*
 
 ### 20.41 Free mode is not available to this caller (§8, §20.34)
 
@@ -5600,6 +5602,375 @@ what this section is about: make a first-class request from inside the CLI.
   first item — if a CLI-hosted turn turns out to be admitted, the same paragraph is wrong in the other
   direction, and that is a paragraph to write once rather than twice.
 
+### 20.42 Disapprove first: a model is not the judge of its own check (§5.1, §20.29, §20.30, §20.35)
+
+This section is the operator's instruction, and it arrived with a live result behind it: WindBreak found
+an end-to-end RCE in Redis. That is the case the whole tool was built for, and it is also the case that
+makes the next problem urgent rather than theoretical — a finding is only worth as much as the proof
+that accompanies it, and the proof is written by the same model that is already convinced. The ask was
+three things at once: make models better at **developing** proofs of concept, work out how a model can
+**verify its own work**, and add a feature that makes it **disapprove first, before it gives the full
+honest review**.
+
+The third is the implementable one and the other two follow from it, which is why it is the one this
+section builds. §20.42.2 states the rule the whole thing rests on; §20.42.3–§20.42.5 are the table, the
+judge and the disposition; §20.42.6 is the order, and §20.42.7 is where the outcome stops being the
+model's to write.
+
+#### 20.42.1 Why "how do we get a model to verify its work" is the wrong question
+
+The question looks like a prompting problem and it is a *trust* problem, and this repository has already
+answered it three times in three places. §20.35.4's rule is that a bounded run which finds nothing is
+silence, not disproof. §20.35.2's is that an unlisted class is undecidable rather than permissive.
+`propose.ts`'s is that the snippet a candidate carries is *read from the file*, because a model that
+describes code that is not there should produce a candidate that contradicts itself rather than one that
+is believed. In each case the design decision is the same: **a model's account of its own work is not
+evidence about its own work.**
+
+So "verify your work" cannot mean *ask the model whether it is sure*. A model asked that will answer
+about the **claim**, which is the part it already believes, and the answer will be confident, fluent, and
+unrelated to whether the artifact holds. Every defect this project has recorded live is exactly that
+gap, and none of them was a model being careless:
+
+| recorded defect | what the model reported | what was true |
+|---|---|---|
+| §20.35.6 #1 | a fuzzer run, `cov: 5`, empty corpus | `-O1` deleted the defect; the body never ran |
+| §20.35.1 | a crash | a `SEGV` from calling the callee with a signature the index does not store |
+| §20.29 first hunt | `ok: true` | no answer at all; it ran out of steps mid-exploration |
+| §20.26 #1 | a model call | the tool list removed the only channel `structured_output` reads |
+
+Four different subsystems, one shape. The conclusion this section draws is that the *unit* of
+verification has to stop being a sentence and become a **check with a recorded result**, and that the
+*direction* has to stop being approval: the model should be trying to destroy its own work, and only
+what survives that gets shown.
+
+#### 20.42.2 The rule: a check is a command, and this repository judges it
+
+`disapprove.ts` is pure — it runs nothing and calls no model — and it holds three things:
+
+1. **A table of the ways a work product can be invalid** (`INVALIDITY_CLASSES`, nine entries), each with
+the doubt in one sentence, the check that settles it, what a pass looks like, and the **recorded defect
+it exists because of**. A class with no origin is a guess wearing a table row's clothes, so every entry
+carries one (§20.42.3).
+2. **A judge**, `judgeCheck`, which reads an exit code, an output and an optional marker and returns
+`survived`, `invalidated` or `inconclusive`. The model does not supply the outcome and there is no field
+for one (§20.42.4).
+3. **A disposition**, `deriveDisapproval`, which is reached by elimination and starts from refusal
+(§20.42.5).
+
+The check itself is executed by `investigate/tools.ts`'s `record_falsification_check`, which runs the
+command in the same sandbox as the agent's other commands and records what happened. The split is the
+same one §20.35 makes between `planFuzzTarget` and the run, and for the same reason: the pure half can be
+pinned by tests before a subprocess exists.
+
+**What a doubt is not.** It is not a checklist item the model attests to. A doubt is *recorded* only when
+a command ran, and the tool's input schema has no field for an expected result — an outcome a model could
+supply is an outcome a model could be wrong about, and being wrong about it is the failure this exists to
+catch.
+
+#### 20.42.3 The doubts, and the work product's own shape decides which are owed
+
+Which doubts a claim owes is derived from **flags on the work product**, not from the model's judgement
+about which checks seem worthwhile. A model that could choose its own required set would choose the two
+it already knows it passes. The flags are `asserts-reproduction`, `asserts-reachability`,
+`wrote-to-subject` and `rests-on-a-run`, and the sets are a **union**: a product that both reproduces
+something and reaches it owes both.
+
+| doubt | owed by | the check | a pass looks like |
+|---|---|---|---|
+| `reproduced-twice` | a reproduction claim | run the same command again, same input, same seed | it failed the same way |
+| `defect-not-the-harness` | a reproduction claim | record the sanitizer category (marker **required**) | it failed with this class's category |
+| `behavior-still-present` | a reproduction claim | show the run failing at the flags actually used (marker **required**) | the behaviour survived the build |
+| `fired-in-the-named-code` | a reproduction claim | compare the report's location to the finding's file and line (marker **required**) | the location is the finding's own code |
+| `success-is-the-targets` | a reproduction claim | run the harness with the cause withheld | the proof-string vanished |
+| `check-can-fail` | anything executed | run the check against a control that must fail | the control failed |
+| `precondition-established` | anything executed | run the command that shows the precondition holds | it held, in the environment the claim is about |
+| `input-reaches-the-sink` | a reachability claim | show a marker the sink prints, or coverage for the named function (marker **required**) | the input arrived |
+| `subject-is-the-targets` | anything that edited the tree | build the target's own code and show the report in the target's file (marker **required**) | the failure came out of the target's compiled code |
+
+Two entries are worth reading closely, because they are the ones a self-review never performs:
+
+- **`check-can-fail` is a positive control, and its origin is `sandbox/probe.ts`.** That probe's own note
+  is the argument: the read-only probe must show a writable bind succeeding *in the same sandbox*,
+  "otherwise a sandbox that simply cannot write anything would pass". A harness with no control is that
+  sandbox — its silence is indistinguishable from its incapacity, and every "\(n\) inputs, no crash"
+  report is the same sentence either way.
+- **`success-is-the-targets` is the mirror image**, and it is why `marker-absent` is an expectation in
+  its own right rather than a flag on the others. `sandbox/probe.ts` prints `READ_ONLY_ENFORCED` /
+  `NO_WRITES_AT_ALL` from inside the shell so that the shell's own message cannot be read as the
+  sandbox's behaviour. A PoC whose proof-line is printed unconditionally by the harness has that problem
+  with the target, and the check that settles it is a run *with the cause removed* — which is a
+  request the model has no reason to make once it believes it already succeeded.
+
+#### 20.42.4 Judging, and the three ways a check fails to be a pass
+
+`judgeCheck` is small and each of its refusals is aimed at a specific way a self-check passes itself.
+The expectation's **direction is the content of the type**, which is why it is not a boolean named
+`expectFailure`: a check listed as `fails` is one that must fail *in order to be reassuring*, and reading
+it backwards is the easiest way to get this gate wrong.
+
+- **A timeout is `inconclusive`, never `survived`.** A check that hung demonstrated nothing, and the
+  failure this prevents is a harness that deadlocks being recorded as a harness that found nothing — the
+  same substitution as a missing search binary reported as no matches (§18).
+- **A needed marker that was not given is `inconclusive`.** Where the doubt is *which* failure this is, a
+  result with no marker cannot settle it, and the honest answer is that the check was not written so that
+  it could. The tool refuses the call outright in that case so the model can correct itself in the same
+  turn, rather than spending one on a check that never could have answered.
+- **A marker that does not match is `inconclusive`, not `invalidated`.** The check failed, but not with
+  the thing the doubt was about, so this run is evidence about neither the work nor the doubt.
+- **`marker-absent` needs a completed run before the absence counts.** A process that died on startup
+  produces no marker for uninteresting reasons.
+
+#### 20.42.5 The disposition defaults to refusal, and `unverified` is a third state
+
+`deriveDisapproval` starts at `disapproved` and a work product has to earn its way out:
+
+```
+approved     every owed doubt was attempted and survived, and none was invalidated
+unverified   nothing executable was claimed, so no doubt was owed
+disapproved  something owed went unanswered, settled nothing, or came back against the work
+```
+
+**`unverified` is not a weaker `disapproved`.** `disapproved` means there is something to argue with — a
+check came back against the work, or a doubt the claim owes was never tried. `unverified` means the
+product rests on nothing executable, so there was nothing that *could* have survived; a review of it would
+be a review of the claim's wording. Collapsing the two would put a claim nobody tested and a claim that
+was tested and held on the same footing, which is the substitution §4.7 and §20.35.4 both refuse.
+
+Three aggregation rules, all conservative in the same direction:
+
+- **One invalidating result decides the doubt even beside a surviving one**, so re-running a flaky check
+  until one run agrees with the model does not work. Both attempts are recorded, so it is *visible*
+  rather than merely ineffective.
+- **One unjudgeable result outranks a surviving one**, so a flaky pass is not a pass.
+- **Surplus checks are recorded and buy nothing.** A claim is not approved by checking things it does not
+  owe, and — the case that matters — a surplus check cannot rescue a doubt that was skipped. Both
+  directions are pinned by test.
+
+**A doubt the table does not know is recorded and counted neither way.** It is not dropped, because a
+silent drop is how work disappears; and it does not move the disposition, because counting it either way
+would be letting an unmodelled claim reach the gate.
+
+#### 20.42.6 The order, enforced rather than recommended
+
+`gateReview(record)` refuses in three states and opens in one: no record at all, `unverified`,
+`disapproved`. The `null` case is separate from an empty record on purpose — "no disapproval was run" and
+"a disapproval was run and came back clean" must not be able to arrive at the same branch, which is the
+same shape as §20.35's six outcomes and §20.41's session states. The absence of a record is its own fact.
+
+The ordering is the *feature*, not a formality. `buildReviewPrompt` opens the review with the record —
+the disposition, then every doubt that survived and the judgement's own words — and puts the claim
+**after** it. A reviewer handed "here is my PoC, it works" and then a table of caveats has already been
+anchored by the first sentence; a reviewer handed the table of what survived is reviewing a different
+object. It also gives the review something firm to disagree with: it may reject a surviving doubt, but it
+has to say which check it would run instead, which is a review rather than an opinion.
+
+**Only the model-generated review is gated.** A human looking at disapproved work is shown the record,
+doubts and all, and is not something this gate has any business preventing — §5.3 makes the human the
+tiebreak, and a gate that hid a disapproved proof of concept from the researcher would be hiding the
+work they asked for.
+
+#### 20.42.7 Where the outcome stops being the model's
+
+`record_falsification_check` is on **both** agents' tool lists (§20.42's second sentence: the engineer is
+the agent this matters most for, since it is the one that produces a proof of concept and then reports
+whether the proof of concept worked). Its input has no expected-outcome field, and it fires
+`onFalsification(attempt, judgement)` with the judgement this repository derived, so the transcript
+carries *one* derivation of the outcome rather than two that can drift.
+
+It adds no reach the run tool did not already have: same sandbox, same read-only target, same absence of
+network. §20.29.2's claim that the investigator's list has no write tool in it is therefore unmoved — what
+changed is that the *judgement* of a result is ours. Three refusals, all normal model behaviour rather
+than faults: a doubt id the table does not know (answered with the list of ones it does), a doubt whose
+check must name a marker (answered without one), and a command the sandbox could not start (a fault, and
+labelled as one).
+
+The agent prompts carry `buildDisapproveFirstRule()`, which is **generated from the table** rather than
+written out — a hand-typed copy of nine doubts in a prompt is a second table that drifts from this one,
+and the drift would be invisible because a prompt is checked against nothing. It tells the model to derive
+its own required set (an agent cannot know what it will claim), states the rule, and says outright that a
+doubt it cannot settle is the most useful thing it can report. The system prompts also now require the
+final answer to report the **outcome before the claim**, and the engineer's says plainly that a proof of
+concept that printed the right line is not yet a result.
+
+#### 20.42.8 Verified
+
+- `disapprove.ts` and `disapprove.test.ts`: **27 tests**. The table's shape (every class carries an origin,
+  ids unique, the sets a union), the judge (each expectation, the marker rules, the timeout rule), the
+  disposition (default refusal, one unattempted doubt beside survivors, invalidating and unjudgeable
+  results outranking survivors, `unverified`, unknown classes, surplus checks in both directions), the
+  gate (all four states), and both prompts — including an assertion that the record is stated **before**
+  the claim in the review prompt, which is the ordering claim rather than a description of it.
+- `tools.test.ts`: **6 tests** for `record_falsification_check`. The outcome comes from the run and not
+  from the model; a check required to fail that succeeded is `invalidated`; a timeout is `inconclusive`;
+  a marker-requiring doubt with no marker is refused **before the sandbox is entered** (asserted on the
+  captured call list, which is empty); an unknown doubt is refused with the known ones named; and both
+  agents get the tool.
+- `onFalsification` carries the attempt *and* the judgement, and `InvestigatorTurn.falsifications` returns
+  both in order, so a pane can render the record without recomputing anything.
+- WindBreak **1578 pass / 0 fail**, typecheck clean. Two existing tests failed on the first run and both
+  were the list assertions doing their job: the engineer's tool order changed, and the investigator's
+  prompt no longer contained the contiguous phrase `There is no write tool` because a line was rewrapped.
+  The first was fixed by matching the construction order, the second by rewrapping the prompt so the
+  sentence survives on one line — the assertion is about the prompt *saying* it, and a phrase that only
+  exists across a line break is not the same claim.
+
+#### 20.42.9 Open items
+
+- **No live run has driven a real disapproval.** Everything here is pinned by tests with an injected
+  workspace and a fake client. The first honest question — does a real model, told to follow
+  `buildDisapproveFirstRule`, actually run the control rather than describing one — is unanswered, and it
+  is the sort of thing this project has repeatedly found only by running (§20.26, §20.35.6, §20.38).
+- **Nothing derives the `WorkProduct` yet.** `requiredClassesFor` takes flags, and the flags are what
+  decide which doubts a claim owes — but no caller constructs one from a turn. The pane that renders a
+  conversation has the claim (the model's prose) and the writes and the checks; turning those into flags
+  is a small, unwritten piece of glue, and until it exists the gate is reachable by the model and not
+  enforced by the surface.
+- **The disapproval record is not persisted.** `InvestigatorTurn.falsifications` returns it and
+  `disapprove.ts` can weigh it, but no table stores it, so it does not survive the conversation and does
+  not reach the report. §13.2's evidence tiers are the natural home for the outcome, and the question
+  that needs deciding there is whether a clean disapproval may *raise* a tier or only annotate one —
+  §4.7's "nothing here can lower a tier" is about a bounded run, and this is a different instrument.
+- **The two later phases of the ask are unbuilt by design.** "Models developing PoCs better" is a prompt
+  and harness question on top of this gate, and "models verifying their work" beyond what a check can
+  settle is the residual §20.29.3 already fences off — a model's reading is recorded as a third voice and
+  never counted. What is built is the part that could be made mechanical; the part that cannot is not
+  pretended into the gate.
+- **`success-is-the-targets` has no live example behind it.** Its origin is `sandbox/probe.ts`'s branch
+  marking and the general failure of a harness that prints its own verdict, which is a real pattern but
+  not one this project has itself been bitten by. It is kept because the check is cheap and the failure is
+  silent, and it is named here as the table's one entry without a recorded incident of our own.
+
+---
+
+### 20.43 Pricing the recall investment: §4.4.1's shape sweep is scored (§11.1, §4.4.1, §20.40)
+
+**What was asked.** Whether to build a feature aimed at finding novel vulnerabilities in popular and
+unpopular codebases. The answer started with a measurement rather than a feature, because §20.40 had just
+produced the first number this project has for any detector and left the obvious follow-up as an open item:
+*nothing scores the TOCTOU FSMs, the signal machine or patch mining this way.* Patch mining is the one D5
+named as the recall investment, §4.4.1 gives it a closed five-item taxonomy with its own admission rule,
+and it had never been priced. So the first thing built was the instrument.
+
+#### 20.43.1 The sweep, subject-free, over §20.40's own corpus
+
+§4.4.1's sweep is normally driven by a **mined pattern** — an operation taken from the target's own fix
+commits. This tier runs it with none: `detectAll` is called with an empty hint for each of the five shapes,
+which is the reading `patchmine/shapes.ts` explicitly *rejects* for a sweep ("a subject-free sweep would be
+shape-only and far too broad", note 2). That rejection is a claim about precision, and §20.40's lesson is
+that a claim about a detector is worth exactly as much as its number. Running it over the same 267 pairs:
+
+| instrument | pairs | tp | fn | fp | tn | containment | false alarm | precision | discriminated |
+|---|---|---|---|---|---|---|---|---|---|
+| patch-mined shape sweep | 267 | 200 | 67 | 204 | 63 | 0.749 | 0.764 | 0.495 | 0.000 |
+
+952 sites were emitted on vulnerable halves and 954 on fixed ones. Three of the five shapes fired at all:
+`null-check` on 180 vulnerable / 182 patched halves, `bounds-check` on 119 / 120, `lifetime` on 44 / 42.
+
+#### 20.43.2 `discrimination` is the wrong verdict for a generator, so the report says which column to read
+
+§20.40 established `discrimination` as the headline for a **detector**, and by that measure this tier is
+worthless: it separated 0 of 267 pairs. Reporting only that would be a second version of the mistake §20.40
+was written to fix, in the opposite direction — because a candidate *generator* is not judged the way a
+detector is. §2.4's funnel assumes the raw static layer arrives at a ~0.9 false-positive rate and exists to
+be filtered, and §4.3 says so in its own words: detectors are "judged by whether triage can cheaply discard
+what they surface, not by their raw precision". The question for a generator is therefore **containment** —
+of the functions that really do contain a defect, how many did it put in front of the filter at all — and
+that number is 0.749.
+
+So the report prints both figures and labels them, in the instrument's own output rather than only in this
+document. A 0.749-containment sweep with a 0.000 pair figure is a recall generator that needs the model
+stages behind it, and saying so is the whole output; a reader who saw one number would conclude either that
+the sweep is excellent or that it is useless, and both would be wrong.
+
+**One figure moved against an earlier probe, and the reason is a definition rather than a run.** A
+throwaway measurement taken while scoping this section put pair discrimination at 0.019 — roughly 5 pairs of
+267 — where the tier reports 0.000. The difference is what "discriminated" counts. The probe asked whether
+*any one shape* fired on the vulnerable half without firing there; the tier asks whether the vulnerable half
+fired anything **and the fixed half fired nothing at all**, which is `rule-tier.ts`'s definition and the one
+`confusion.ts` computes for every instrument. Both readings are defensible and they are not
+interchangeable: a pair whose `null-check` fires vulnerable-only while its `bounds-check` fires on both is a
+probe hit and a tier false alarm. The tier keeps the shared, stricter definition — a second place to compute
+`discrimination` slightly differently is precisely what §11.1's single `scoreStage` exists to prevent — and
+the divergence is recorded here so the two figures are never quoted as if they measured the same thing.
+
+#### 20.43.3 Two of the five shapes are structurally inert, which is the recall question stated exactly
+
+`guard` and `lock` fired on **no half of any pair**, and this is not weakness to be tuned away. Both
+branches of `detectAll` return `[]` when `hint.operation` is null — they need a mined operation to know what
+to look for — so with no pattern in hand they cannot fire, by construction. The tier names them as
+`inertShapes` rather than leaving a zero to be read, because a zero that came from a design boundary and a
+zero that came from a measurement are different facts, and this is the §18 rule applied to a detector's
+coverage instead of to a stage's count.
+
+The reason it matters here rather than being a footnote is the asymmetry it exposes. Three of the five
+shapes can be swept with no pattern at all — that is what the containment figure measures. The other two
+cannot, and the reason is not tuning: their only subject is a mined operation, and the only place an
+operation can be mined from is the target's **own fix history**. So a checkout without one gets *nothing*
+from these two, and gets nothing from the shape sweep as a whole unless a pattern has been mined somewhere
+else. That is the recall question for the "nonpopular codebase" case stated as a property of the code
+rather than as a worry, and it is a limit no amount of detector work reaches — the missing input is a
+history that does not exist.
+
+#### 20.43.4 What the instrument is, and what it deliberately shares
+
+`runShapeTier` takes the corpus, an injected `ShapeDetector`, and nothing else. The sweep is a pure function
+over text, so this is the only instrument in §11.1 that needs no provider, no database, no engine and no
+subprocess — which is why §20.40's rule tier cannot run in the test suite and this one can, and why a figure
+that costs nothing to produce is one that gets re-produced.
+
+What it shares with the rule tier is deliberate rather than incidental: the same corpus, the same
+`scoreStage`, the same two-sided ground truth, the same three honesty rules (a half with no verdict is
+`unscoreable` rather than `cleared`; a stage that decided nothing reports `not-run` with its reason and
+`null` metrics rather than zeroes; the per-shape table is printed beside the aggregate, because the only
+actionable output is *which shapes fire at all*). Detection is injected for a different reason than the rule
+tier injects execution — that one injects a subprocess because its version moves the numbers, this one
+injects a pure function so the tier can be driven by a fixture and a figure can stay comparable after the
+detectors change underneath it.
+
+Reachable as `windbreak eval <corpus> --shapes`. `--rules` and `--shapes` are refused **together** rather
+than one silently winning, because the entire point of these providerless tiers is that the number printed
+names the instrument that produced it.
+
+#### 20.43.5 Verified
+
+- `windbreak eval corpus/cve-fixes.json --shapes` reproduces the table above, 267 pairs / 534 halves, 0
+  halves without a verdict, in seconds and with no credentials.
+- 11 tests in `src/eval/shape-tier.test.ts`, including the two claims that cannot be faked by a fixture:
+  that `sweepShapes` does fire on a pointer dereference with no null test (the positive control — a sweep
+  that cannot fire is indistinguishable from one that found nothing, which is §20.35.6 #1 one layer down),
+  and that `guard` and `lock` do not.
+- The inert-shape claim is asserted at both layers: on `sweepShapes` directly, and on the report's
+  `inertShapes`, in the same test that asserts `null-check` fired — so the claim is about two shapes rather
+  than about a detector that never runs.
+- The three honesty rules are each pinned: a missing key and an explicit `null` are both `unscoreable`
+  rather than a clear, an all-`null` sweep is `not-run` with its own reason, and an empty corpus is
+  `not-run` with a different one.
+- `bunx tsc --noEmit` clean; the suite at 1589 pass / 0 fail.
+
+#### 20.43.6 Open items
+
+- **The shipping stage has still never been scored this way.** This tier measures the sweep with *no* mined
+  pattern, which is the reading `shapes.ts` rejects — so it prices the subject of that rejection and says
+  nothing about the pattern-driven sweep that actually ships. The two are different machines and only one of
+  them now has a number.
+- **The per-shape table is not yet per-shape containment.** The report attributes fires per shape but scores
+  the halves as one instrument, so it cannot say which of `null-check`, `bounds-check` or `lifetime` carries
+  the 0.749 — and each would presumably score very differently, since `null-check`'s 180/182 split is the
+  least selective of the three and `lifetime`'s 44/42 is a different failure mode from the same cause.
+- **954 sites on fixed halves is the load a downstream stage would actually receive.** The containment
+  figure is the good half of this result; the volume is the other half, and whether triage can discard it at
+  §2.4's assumed rate is untested here because no triage stage ran.
+- **The corpus's unit is the function the fix touched**, so a sweep firing anywhere in that function counts
+  as containing the defect. That is the right question for a generator and a lenient one for a detector, and
+  the two readings are one line apart in the report.
+- **`bounds-check` subject-free uses every identifier-indexed access**, which is why it fires on 119
+  vulnerable and 120 patched halves — the shape fires on "there is an array indexed by a variable", which is
+  most of C. Any tuning of that branch is a change to the shipping detector and owes its own measurement.
+- **Four other detectors remain unmeasured this way**: §4.4.3's four check-to-use FSMs, §4.4.3's CWE-364
+  signal machine, and the interprocedural call-graph producer added since §20.22. The instrument now exists
+  and each is a caller away, which was not true before this section.
+
 ---
 
 *This document is the plan, and the implementation has caught up to it. It was written to be worked through before implementation; where a section's prose and §20 disagree, §20 describes the code that exists. Claims that later work overtook are marked in place (`*built since; see §X*`) rather than deleted, so a reader can tell a superseded statement from an oversight. The scaffold (§20.4), the sandbox + build step (§20.6), recon (§20.7), OSV correlation (§20.8), the baseline engines stage (§20.9), the candidate pipeline (§20.10), reporting (§20.11), the pattern library (§20.12), the `scan` orchestrator (§20.13), the adjudication screen (§20.14) — with its mouse and scrolling behaviour (§20.15) and its layout and palette (§20.16) — are in place and verified, as is D16's deferral (§20.17) with the request/services handoff seam it required (§20.20), the `eval` scoring core (§20.18), Tier 1's function-level corpus (§20.19), §4.4.1's patch-mined discovery (§20.21) — the MVP feature D5 named and the only §3.2 capability that had been missing — §4.4.3's check-to-use / race module (§20.22), the flagship capability, with the one interpretation §4.4.3 left open recorded against its own claim rather than papered over, and §4.4.3's CWE-364 signal-handler machine (§20.23) — the one race family those four FSMs cannot express, and the one whose shapes MITRE enumerates itself. §6's C/C++ scope was then widened for the program model alone (§20.24), which found a recall hole in the C++ index that had been there since §20.7 and pinned the C-shaped sweeps to the languages whose tables they actually are, so that a Python repository reports how much of itself went unswept instead of looking clean — that number now printed as its own line beside the candidate counts rather than only as a warning (§20.24.5). §20.24.7 then makes the next language affordable: the single `DETECTOR_LANGUAGES` constant became a per-detector capability matrix, so a language is swept by the detectors whose tables it has — and one only some of them cover is reported as *partly swept* with the missing detectors named, rather than rounded to swept or unswept. The shipped matrix is still C and C++ everywhere, so detection is unchanged; what changed is that adding a language is now one entry on one list, and the report says which detectors skipped a language rather than only how many callables went unread. D22's corpus is now whole (§20.25): the private list shipped with §20.18 and `fetch` materializes its snapshots at the pinned revisions, blobless so that the two miners still have a history to mine. The model path has then been driven **live** for the first time (§20.26) — a complete scan, `exit 0`, 2 triaged, 1 cross-model-verified, 1 CWE-120 finding written — which is how three defects in `pipeline/invoke.ts` were found: a tool list that removed the only channel `structured_output` reads, an instruction telling the model not to use the tool the runtime requires, and a step ceiling that made the runtime's own retry unreachable. All three were invisible to the fake-invoker suite by construction. That run also left a requirement no section wanted to own — eight exported environment values before a model call may even be attempted — and §20.27 removes it, with the note that the first attempt failed because the fix imported the very module whose snapshot it had to precede. §20.28 then revisits §20.14.1's first honesty rule — a missing database used to be refused with a non-zero code, and now opens the screen with the path marked *not found*, because the screen has room to name the state and the refusal did not. §20.29 is the one section written as a **plan rather than a record** — an investigator that can read and execute in the target, inside the adjudication screen — and it is marked as such where it sits, with the two invariants it touches named rather than discovered later; **its first four slices are now built** (§20.29.7): a mediated workspace that confines every read to the target and runs every command in the sandbox, five owned custom tools with §5.1's neutralization extracted rather than reimplemented, an agent whose prose output cannot be read as a verdict, a recorded transcript in a table of its own (`investigator_turns`, schema v6) that `runVerification` does not query, and a `propose_candidate` channel whose candidates enter §4.5 at `state: 'new'` stamped `investigator` — with the "not an engine match" claim §20.29.4 requires actually made in the prompt's provenance line, the writeup, the SARIF result, and a `modelProposed` funnel column. The role needed a distinction rather than a union member: the investigator is configurable and recordable while staying out of `ModelRole`, which is what the verdict path accepts, and that containment is asserted at compile time. Two live runs found three defects the fake-client suite could not — a prompt that told the model to report in prose instead of proposing, a turn that reported `ok: true` with no answer at all, and a step ceiling measured too low. **Slice 5 puts it in the screen** — `c` in the adjudication screen opens a chat in the decision card's slot (*superseded: §20.32 moves it to the body, with the queue kept as a rail*), `/hunt` for the target and a plain question for the selected row, with every turn recorded and the screen still constructing no client of its own — so **D32's row is now marked false at the point of the claim**, exactly as §20.29.3 said it would be. **Slice 6 closes the section** — a per-conversation ceiling in model calls, counted from the provider's own usage reports with a floor of one per turn, one budget shared by a hunt and an explain, a `windbreak.config` row the screen actually reads, and `esc` stopping a turn in flight and reporting it as `cancelled` rather than `failed` — which is the last item §20.29.6 left open and the thing that makes the pane safe to leave open. §20.29.8 then gives the cold start a face: the renderer is built first, a small loading view names what is being waited for and the database path, and only then is the bridge constructed — with the two gates that make a frame actually reach the terminal (a `flushSync` commit and a bounded `renderer.idle()` draw) found by running it, and asserted on captured frames rather than on call order. §20.30 then puts the code beside the queue: `f` lists the target's file inventory — what recon **indexed**, not a directory walk, so the files on screen are the same set the findings are about — in the detail pane's slot, with the target and pinned commit in its header, the dropped rows printed when the listing is capped, and its three empty states (no target, an empty inventory, a populated tree) said three different ways rather than collapsed into one empty pane. Its second slice is where the editing lands: a writable *copy* of the target that models may patch and rebuild, reached by `tab` from the same pane, while the target itself stays a read-only bind — **the artifact a finding cites has to remain the artifact a reader can re-examine**, and that is the one property security research can least afford to lose. The copy, the three write tools, the two agents' separate tool lists, and schema v7's `working_copies` are built and verified (§20.30.1 records what is still open). §20.31 then answers the question that entry left open — `windbreak` in a checkout nothing has scanned now opens on **that repository**, because the screen resolves the git root (falling back to the working directory) and the pane falls back to a filesystem walk when the database has no target to show; the walk reuses recon's own `collectInventory`, so both sources share one answer to what a source file is, and it is **labelled as unscanned** in a warned header line rather than passed off as the inventory the findings are about, which is the rule §20.30 chose the inventory for in the first place. The models read the same directory through a fallback root that a run's own target always overrides, and the scratch goes to the system temp dir because an unscanned checkout has no `.windbreak` and writing one would be a change to a tree the screen is only reading. What such a checkout cannot do is now said outright rather than discovered: there is no run, so turns are not recorded, candidates cannot be created, and the engineer is refused — writing being recorded is what §20.30's engineer *is*, and attribution needs a run. §20.32 then follows where §20.31's fallback left the screen usable: `c` gives the chat the body instead of a card-sized slot, the queue stays as a narrow rail that is dropped rather than squeeze the prose, and — the part that was a real defect rather than a preference — the transcript **wraps** where it used to truncate, so a model's paragraph is read instead of arriving as its first clause and an ellipsis. Wrapping happens where the lines are built so the pane's row-based scroll counts the rows that exist, and the hint row is the chat's own because the browse keys are inert while the input owns the letters. §20.33 then makes the command a **passage rather than a destination**: a bare `windbreak` opens a start menu — run a scan, browse the files, resume a previous run — instead of §5.3's queue, with the repository and the database named above the rows before anything is chosen. The scan runs **in this process** (the interactive budget decider reads stdin, which the renderer owns, so `yes: true` is correctness rather than a default), streams the run's own log, and reads its stage from the run's own announcements; a continuation takes its checkout from the run rather than the working directory, exactly as the batch `resume` does. The queue becomes a screen *under* the menu reached through a run or the whole-database row, `--run` still skips the menu so the batch contract is unchanged, and a finished scan keeps its summary — a deliberate departure from the interview's "land on the dashboard", because the summary is a run's only record of its warnings and of whether `0 candidates` means clean or unswept. §20.35 then reverses the plan's own last decision: D21 kept v0.1 out of the fuzzing business and §16 put step 11 last as *out of MVP scope*, and the interface §12.4 preserved is now the thing it was preserved for — `windbreak confirm` generates a libFuzzer target for a finding, compiles and runs it **inside the sandbox** with the checkout bound read-only, and records what manifested in a table of its own (schema v8). The gates are the design: a class is confirmable only if one run can settle it (twelve do, eight are refused with their reasons, and races are refused because *a single run cannot disprove, so it cannot confirm*), and a crash counts only when the sanitizer's own category matches the class **and** the report lands in the finding's own file or function — because the symbol index stores no parameter list, so a generated target calls a callee whose signature it cannot know, and a mismatched call segfaults just as convincingly as a real defect. Four defects were found by running it and none by reading it: `-O1` deletes the very store a defect consists of, C23 makes the empty parameter list mean `void`, ASan cannot symbolize without `llvm-symbolizer`, and `addr2line` cannot read clang 22's default DWARF. The result is a fourth tier — `statically-verified` < `dynamically-confirmed` < `human-reproduced` — that never demotes, because a bounded run that finds nothing is silence rather than disproof, and `build-failed` is kept apart from `not-reproduced` so a broken machine cannot read as a clean finding. §20.34 then takes the one failure that was arriving as *evidence about the target* and says it as a fact about the account: a depleted balance or a rejected credential is classified once (`provider-failure.ts`, two kinds with two different fixes, from the two message shapes the live backend actually produces), carried on the turn that met it, held by the bridge until a call goes through rather than for one turn, reaching the composer's out-of-credits takeover — which now reads the refusal that carries no status as well as a 402 — and stated **once on `ScanResult`** — above the stage table in both batch summaries — instead of as one true `warning:` per candidate among a hundred identical ones. §20.36 then puts a **scan back on screen without bringing the screen back**: retiring the custom TUI took §20.33's first row with it, so the scan is a *view inside the chat app* — four files on the seam `/review` already uses, calling the `launchScan` that the same retirement had orphaned — with the session's checkout as its subject and the config's database as its destination, the batch summary extracted so one function renders a run on both surfaces, and `esc` refused while the run is in this process because `launchScan` has no cancel and the summary is the one thing worth keeping. §20.37 then gives the *other* half of that command a surface, and the stronger claim: `/windbreak` opens §5.3's queue and records each decision from the keystroke through `recordAdjudicationDecision`, so the rationale is the researcher's text rather than a model's sentence about it — with the two views sharing one discriminator (both open at once would make the second unreachable), both model answers shown in full beside the §5.1 injection signals, the four nothings of §18 (refused, missing, empty, all decided) said four different ways, the scan's own subject resolver choosing the database so a configured one is read rather than the conventional default, and two defects found by running it rather than reading it — a refusal that did not name the file it was about, and copy hand-wrapped for one width and broken mid-clause by a narrower terminal. §20.38 then gives §20.29's orphan a way in — `c` in the queue opens a recorded conversation about the selected row, with the credentials resolved into a sentence the pane shows rather than an exception inside a render, a second WAL connection so the queue keeps its own reads, the ceiling read from the config the subject actually resolved, five defects found — four by pinning the pane's honesty rules in tests, and one, a `maxSteps` the engine never received because a spread hid the wrong key name from the typechecker, by reading the option names against the engine while setting that run up — and its first live conversation, which resolved credentials for real, recorded both turns, carried the provider's 402 as a classified billing refusal and left the candidate's state alone, but never got an answer because the account is out of credits. §20.39 then asks the question none of the producers asked: §4.4.4's reachability — an entry-point inventory stored with the reason each entry counts, a closure that keeps *no path* apart from *path unknown* by tainting everything below an incomplete caller set, one gate that only a completed search may close, and a finding that says which entry an attacker arrives through and how far it is from there — then
@@ -5622,4 +5993,28 @@ warning rather than followed any further — so the free path is opt-in, the met
 again (the first version made free the only path and would have left a credits account unable to run a
 model stage at all, which running it is what caught), and whether a stage hosted *inside* the CLI is
 admitted where a direct call was refused is the second of §20.41.9's open items — now wired (§20.41.7),
-with the CLI lending its own client and the session it holds, and still unrun. **§7.3's command list is implemented**, `fetch` included: `prepare` (§6.3) and `eval` (§11, both tiers) were the last two placeholders, and `fetch` and `confirm` (D21's reversal, §20.35) are the two commands added since that list was first written. §17's remaining open items, §20.5, and the open items in §20.6.3–20.6.4, §20.7.2–20.7.5, §20.8.2, §20.9.3, §20.10.3, §20.11.3, §20.12.6, §20.13.6, §20.14.5, §20.15.4, §20.16.6, §20.17.4, §20.18.9, §20.19.8, §20.20.6, §20.21.6, §20.22.7, §20.23.6, §20.24.6, §20.25.6, §20.26.6, §20.27.7, §20.28.5, §20.30.1, §20.31.1, §20.32.1, §20.33.7, §20.34.5, §20.35.9, §20.36.7, §20.37.6, §20.38.6, §20.39.7, §20.40.6 and §20.41.9 are the live unknowns — §20.29.6's last two went with slice 6, so that section is no longer on the list. §20.24 is the one section that is deliberately *half* of what was asked: indexing eleven languages is finished and verified, and detecting in them is the per-language work §20.24.6 enumerates. §20.22.1 is the one item in that list that is a question about *scope* rather than a known limit: §4.4.3 says "four known patterns" and never names them. §20.23 is the counter-example that shows the difference — CWE-364 names its own behaviours, so that section's shapes carry no such caveat, and what it records instead are limits of the analysis rather than questions about what to build.*
+with the CLI lending its own client and the session it holds, and still unrun. **§20.42 then answers the
+operator's next instruction — that a model should disprove its own work before it is allowed to review
+it — by making the outcome of a self-check something the model does not get to author.** Nine recorded
+doubts, each carrying the defect it exists because of; the claim's own shape decides which it owes, so a
+model cannot pick the checks it already passes; a check is a **command**, run in the same sandbox, judged
+here from the exit code and the marker and never from anything the model says about it; and approval is
+reached by elimination, so an unattempted doubt, a check that settled nothing and a check that hung are all
+refusals rather than passes. A third state, `unverified`, keeps "nothing was shown" apart from "something
+was shown and failed". The review cannot begin until the disapproval approved, and it is handed the record
+**before** the claim — which is the anchoring fix and the reason the order is enforced rather than
+recommended. **§20.43 then does the same for the recall investment itself** — the question of whether to
+build something new for novel vulnerabilities in popular and unpopular codebases is answered by first
+pricing what is already there, so §4.4.1's five shape detectors are scored subject-free over §20.40's own
+267-pair corpus, and the result has the shape §20.40 predicted for a different reason: 0.749 containment
+with 0.000 pair discrimination, meaning the sweep puts three of four real defects in front of a filter and
+separates essentially no pair — a generator rather than a detector, which is why the report labels which
+column answers which question instead of printing one figure for both. Two of the five shapes fire nowhere,
+and not from weakness: `guard` and `lock` cannot fire without a mined operation, so on a checkout with no
+fix history of its own — the nonpopular case exactly — the patch-mined layer emits nothing from them, which
+the report names as `inertShapes` rather than leaving a designed zero to read as a measured one. The
+instrument needs no provider, database, engine or subprocess, so unlike §20.40's it runs in the test suite;
+`--rules` and `--shapes` are refused together so a figure always names its own instrument; and an earlier
+throwaway probe's 0.019 is recorded against the tier's 0.000 as a definition difference rather than a
+rediscovery, because the shared definition requires the fixed half to fire nothing at all.
+**§7.3's command list is implemented**, `fetch` included: `prepare` (§6.3) and `eval` (§11, both tiers) were the last two placeholders, and `fetch` and `confirm` (D21's reversal, §20.35) are the two commands added since that list was first written. §17's remaining open items, §20.5, and the open items in §20.6.3–20.6.4, §20.7.2–20.7.5, §20.8.2, §20.9.3, §20.10.3, §20.11.3, §20.12.6, §20.13.6, §20.14.5, §20.15.4, §20.16.6, §20.17.4, §20.18.9, §20.19.8, §20.20.6, §20.21.6, §20.22.7, §20.23.6, §20.24.6, §20.25.6, §20.26.6, §20.27.7, §20.28.5, §20.30.1, §20.31.1, §20.32.1, §20.33.7, §20.34.5, §20.35.9, §20.36.7, §20.37.6, §20.38.6, §20.39.7, §20.40.6, §20.41.9, §20.42.9 and §20.43.6 are the live unknowns — §20.29.6's last two went with slice 6, so that section is no longer on the list. §20.24 is the one section that is deliberately *half* of what was asked: indexing eleven languages is finished and verified, and detecting in them is the per-language work §20.24.6 enumerates. §20.22.1 is the one item in that list that is a question about *scope* rather than a known limit: §4.4.3 says "four known patterns" and never names them. §20.23 is the counter-example that shows the difference — CWE-364 names its own behaviours, so that section's shapes carry no such caveat, and what it records instead are limits of the analysis rather than questions about what to build.*

@@ -8,9 +8,12 @@ import {
   DEFAULT_MIN_RECALL,
   loadEvalInput,
   renderRuleTierReport,
+  renderShapeTierReport,
   runEval,
   runRuleTier,
+  runShapeTier,
   runTier1,
+  sweepShapes,
   UnknownRunError,
 } from '../eval'
 import { renderEvalReport } from '../eval/report-text'
@@ -28,6 +31,7 @@ interface EvalCommandOptions {
   run?: string
   minRecall?: string
   rules?: boolean
+  shapes?: boolean
   json?: boolean
 }
 
@@ -68,6 +72,12 @@ export const registerEvalCommand = (program: Command): void => {
       'score the committed rule set over a pair set instead of the model stages ' +
         '(no provider, no database)',
     )
+    .option(
+      '--shapes',
+      "score §4.4.1's shape detectors subject-free over a pair set instead of the " +
+        "model stages — the patch-mined layer with no mined pattern (no provider, no " +
+        'database, no engine)',
+    )
     .option('--json', 'emit machine-readable output')
     .action(async (corpusPath: string, options: EvalCommandOptions & { cache?: boolean }) => {
       let input: EvalInput
@@ -79,21 +89,37 @@ export const registerEvalCommand = (program: Command): void => {
         return
       }
 
-      // The rule tier reads a corpus and runs an engine. It needs neither the
-      // state database nor a provider, so it is handled before either is
-      // required — refusing it for a missing database would be a gate on a
-      // dependency it does not have.
-      if (options.rules === true) {
+      // Two providerless instruments pick one half of the funnel each, and a run
+      // cannot be both: `--rules` scores the committed rule set, `--shapes` scores
+      // §4.4.1's patch-mined detectors with no pattern. Refused together rather
+      // than silently preferring one, because the whole point of these tiers is
+      // that the number printed names the instrument that produced it.
+      if (options.rules === true && options.shapes === true) {
+        console.error(
+          '--rules and --shapes are two different instruments over the same corpus: the ' +
+            'committed rule set, and §4.4.1\'s shape detectors run subject-free. Score ' +
+            'them in separate runs so each figure names its own instrument.',
+        )
+        process.exitCode = 1
+        return
+      }
+
+      // Both tiers read a corpus and need neither the state database nor a
+      // provider, so they are handled before either is required — refusing one
+      // for a missing database would be a gate on a dependency it does not have.
+      if (options.rules === true || options.shapes === true) {
         if (input.kind !== 'function-pairs') {
+          const flag = options.rules === true ? '--rules' : '--shapes'
           console.error(
-            '--rules scores a function-level corpus (§11.1); this file is a repo-snapshot ' +
+            `${flag} scores a function-level corpus (§11.1); this file is a repo-snapshot ` +
               'fixture list (§11.2), whose sites are scored against recorded runs rather ' +
               'than function text.',
           )
           process.exitCode = 1
           return
         }
-        await runRuleTierCommand({ options, pairSet: input.pairSet })
+        if (options.rules === true) await runRuleTierCommand({ options, pairSet: input.pairSet })
+        else runShapeTierCommand({ options, pairSet: input.pairSet })
         return
       }
 
@@ -198,6 +224,59 @@ const runRuleTierCommand = async (input: {
   } finally {
     fs.rmSync(scratchDir, { recursive: true, force: true })
   }
+}
+
+/**
+ * Score §4.4.1's shape detectors over a corpus, subject-free (§20.43).
+ *
+ * The only instrument in §11.1 that touches neither a provider, a database, an
+ * engine nor a subprocess: the sweep is a pure function over text. That is why it
+ * can be scored in a suite, and it is the reason it is worth having a flag at all
+ * rather than folding it into `--rules` — a figure that costs nothing to produce is
+ * one that gets re-produced, and re-production is the whole difference between a
+ * number and a claim.
+ *
+ * Flags belonging to other tiers are refused rather than ignored, for the reason
+ * the rule tier gives: `--run` selects a recorded run and this tier records nothing,
+ * so accepting it would let a script believe it had scored one.
+ */
+const runShapeTierCommand = (input: { options: EvalCommandOptions; pairSet: PairSet }): void => {
+  const { options, pairSet } = input
+
+  if (options.run !== undefined) {
+    console.error(
+      '--run selects a recorded run, which the shape tier does not use: it scores the ' +
+        'corpus directly and records nothing.',
+    )
+    process.exitCode = 1
+    return
+  }
+
+  if (options.minRecall !== undefined) {
+    console.error(
+      '--min-recall is a repo-level bar (D11) and does not apply to a function-level ' +
+        'corpus. §11.1 forbids reading this tier as repo-scale evidence, so there is no ' +
+        'threshold here to fail.',
+    )
+    process.exitCode = 1
+    return
+  }
+
+  const report = runShapeTier({
+    pairSet,
+    detector: (half) => sweepShapes(half.source),
+    log: options.json ? () => {} : (line) => console.log(line),
+  })
+
+  if (options.json) {
+    console.log(JSON.stringify(report, null, 2))
+  } else {
+    console.log('')
+    console.log(renderShapeTierReport(report))
+  }
+
+  // No gate, but a measurement that did not happen is not a success.
+  if (report.metrics.status === 'not-run') process.exitCode = 1
 }
 
 const runFixtureTier = async (input: {

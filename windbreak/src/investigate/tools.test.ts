@@ -7,12 +7,14 @@ import {
   COPY_TOOL_NAMES,
   COPY_WRITE_TOOL_NAMES,
   ENGINEER_TOOL_NAMES,
+  FALSIFY_TOOL_NAME,
   INVESTIGATOR_TOOL_NAMES,
   createInvestigatorTools,
 } from './tools'
 import { createWorkingCopy } from './copy'
 import { createInvestigatorWorkspace } from './workspace'
 
+import type { CheckJudgement, FalsificationAttempt } from './disapprove'
 import type { CopyWriteRecord, ToolResult, ToolResultRecord } from './tools'
 import type { InvestigatorWorkspace } from './workspace'
 import type { SandboxRunResult } from '../sandbox/types'
@@ -580,5 +582,149 @@ describe('the write tools (§20.30)', () => {
     expect(value.recorded).toBe(true)
     // The slice is read from the *target*, so the engineer's patch is not in it.
     expect(value.content as string).toContain('strcpy(b, v[1]);')
+  })
+})
+
+describe('record_falsification_check (§20.42)', () => {
+  /** A run that returns whatever the test needs, and records it was called. */
+  const withRun = (
+    workspace: InvestigatorWorkspace,
+    result: Partial<SandboxRunResult>,
+    calls: string[][] = [],
+  ): InvestigatorWorkspace => ({
+    ...workspace,
+    run: async (command) => {
+      calls.push(command)
+      return {
+        backend: 'bwrap' as const,
+        argv: command,
+        exitCode: 1,
+        stdout: '',
+        stderr: '',
+        durationMs: 2,
+        timedOut: false,
+        ...result,
+      }
+    },
+  })
+
+  test('the outcome is judged from the run, never from anything the model said', async () => {
+    const workspace = await workspaceFor(makeTarget())
+    const seen: Array<{ attempt: FalsificationAttempt; judgement: CheckJudgement }> = []
+    const tool = toolNamed(
+      createInvestigatorTools({
+        workspace: withRun(workspace, {
+          exitCode: 1,
+          stderr: 'heap-buffer-overflow on address 0x0',
+        }),
+        onFalsification: (attempt, judgement) => seen.push({ attempt, judgement }),
+      }),
+      FALSIFY_TOOL_NAME,
+    )
+
+    const value = valueOf(
+      await tool.execute({
+        klass: 'defect-not-the-harness',
+        command: ['./poc'],
+        describes: 'the sanitizer category, not a bare SEGV',
+        marker: 'heap-buffer-overflow',
+      }),
+    )
+
+    expect(value.outcome).toBe('survived')
+    expect(value.recorded).toBe(true)
+    expect(value.klass).toBe('defect-not-the-harness')
+    expect((value.content as string)).toBeDefined()
+    expect(seen).toHaveLength(1)
+    expect(seen[0]!.attempt.argv).toEqual(['./poc'])
+    expect(seen[0]!.judgement.outcome).toBe('survived')
+  })
+
+  test('a check that was required to fail and did not is invalidated, and says so', async () => {
+    const workspace = await workspaceFor(makeTarget())
+    const tool = toolNamed(
+      createInvestigatorTools({ workspace: withRun(workspace, { exitCode: 0 }) }),
+      FALSIFY_TOOL_NAME,
+    )
+
+    const value = valueOf(
+      await tool.execute({
+        klass: 'reproduced-twice',
+        command: ['./poc'],
+        describes: 'the same command, run again',
+      }),
+    )
+
+    expect(value.outcome).toBe('invalidated')
+    expect(String(value.detail)).toContain('requires it to fail')
+  })
+
+  test('a timeout is recorded as unjudged rather than as a pass', async () => {
+    const workspace = await workspaceFor(makeTarget())
+    const tool = toolNamed(
+      createInvestigatorTools({
+        workspace: withRun(workspace, { exitCode: 137, timedOut: true }),
+      }),
+      FALSIFY_TOOL_NAME,
+    )
+
+    const value = valueOf(
+      await tool.execute({
+        klass: 'check-can-fail',
+        command: ['./control'],
+        describes: 'the same harness against a guarded subject',
+      }),
+    )
+
+    expect(value.outcome).toBe('inconclusive')
+    expect(String(value.detail)).toContain('timed out')
+  })
+
+  test('a doubt about which failure this is refuses a check with no marker, and runs nothing', async () => {
+    const workspace = await workspaceFor(makeTarget())
+    const calls: string[][] = []
+    const tool = toolNamed(
+      createInvestigatorTools({ workspace: withRun(workspace, {}, calls) }),
+      FALSIFY_TOOL_NAME,
+    )
+
+    const value = valueOf(
+      await tool.execute({
+        klass: 'defect-not-the-harness',
+        command: ['./poc'],
+        describes: 'no marker given',
+      }),
+    )
+
+    expect(value.recorded).toBe(false)
+    expect(String(value.error)).toContain('has to name the string to match against')
+    // Refused before the sandbox: a check that cannot settle the doubt is not run.
+    expect(calls).toEqual([])
+  })
+
+  test('an unknown doubt is refused and listed, rather than recorded as nothing', async () => {
+    const workspace = await workspaceFor(makeTarget())
+    const calls: string[][] = []
+    const tool = toolNamed(
+      createInvestigatorTools({ workspace: withRun(workspace, {}, calls) }),
+      FALSIFY_TOOL_NAME,
+    )
+
+    const value = valueOf(
+      await tool.execute({
+        klass: 'feels-solid',
+        command: ['./poc'],
+        describes: 'not a doubt this table has',
+      }),
+    )
+
+    expect(value.recorded).toBe(false)
+    expect(String(value.error)).toContain('defect-not-the-harness')
+    expect(calls).toEqual([])
+  })
+
+  test('the engineer gets the check too, because it is the agent that writes the PoC', () => {
+    expect([...ENGINEER_TOOL_NAMES]).toContain(FALSIFY_TOOL_NAME)
+    expect([...INVESTIGATOR_TOOL_NAMES]).toContain(FALSIFY_TOOL_NAME)
   })
 })

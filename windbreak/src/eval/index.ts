@@ -36,6 +36,13 @@ export {
   runRuleTier,
 } from './rule-tier'
 export { renderRuleTierReport } from './rule-tier-text'
+export {
+  runShapeTier,
+  SHAPE_HALVES,
+  SHAPE_TIER_STAGE,
+  sweepShapes,
+} from './shape-tier'
+export { renderShapeTierReport } from './shape-tier-text'
 export { buildFunnel, stageSurvivors } from './funnel'
 export { EvalInputReadError, loadEvalInput, readJsonFile } from './load'
 export {
@@ -104,6 +111,15 @@ export type {
   RuleTierReport,
   RunRuleTierOptions,
 } from './rule-tier'
+export type {
+  RunShapeTierOptions,
+  ShapeAttribution,
+  ShapeDetector,
+  ShapeHalfInput,
+  ShapeHalfOutcome,
+  ShapePairOutcome,
+  ShapeTierReport,
+} from './shape-tier'
 export type {
   EvalCandidate,
   EvalFixtureReport,
